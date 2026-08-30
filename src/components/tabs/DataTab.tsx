@@ -5,6 +5,7 @@ import {
   exportProjectJson,
   parseProjectFile,
 } from '../../lib/exchange'
+import { folderSyncSupported } from '../../lib/folderSync'
 import { projectStats } from '../../lib/project'
 import type { Project } from '../../types'
 
@@ -43,6 +44,102 @@ const MODES: { id: ImportMode; label: string; hint: string }[] = [
     hint: 'Overwrites the current project with the file.',
   },
 ]
+
+function FolderSync() {
+  const folder = useStore((s) => s.folder)
+  const connectFolder = useStore((s) => s.connectFolder)
+  const disconnectFolder = useStore((s) => s.disconnectFolder)
+  const syncToFolder = useStore((s) => s.syncToFolder)
+  const loadFromFolder = useStore((s) => s.loadFromFolder)
+  const [warnings, setWarnings] = useState<string[]>([])
+
+  if (!folderSyncSupported()) {
+    return (
+      <section className="space-y-2">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Folder sync
+        </h2>
+        <p className="text-[11px] text-slate-500">
+          This browser cannot open folders; use JSON export/import instead.
+          Chrome and Edge support it.
+        </p>
+      </section>
+    )
+  }
+
+  return (
+    <section className="space-y-2">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Folder sync
+      </h2>
+      {folder.connected ? (
+        <>
+          <p className="text-[11px] text-slate-600">
+            Saving every project into{' '}
+            <span className="font-medium text-slate-900">{folder.name}</span>
+            {folder.lastSyncAt
+              ? ` · last write ${new Date(folder.lastSyncAt).toLocaleTimeString()}`
+              : ''}
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              disabled={folder.busy}
+              onClick={() => void syncToFolder()}
+              className="rounded bg-slate-900 px-2 py-2 text-xs text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              Sync now
+            </button>
+            <button
+              type="button"
+              disabled={folder.busy}
+              title="Read every .busmap.json back from the folder"
+              onClick={() => {
+                void loadFromFolder().then(setWarnings)
+              }}
+              className="rounded border border-slate-300 px-2 py-2 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Load
+            </button>
+            <button
+              type="button"
+              onClick={() => void disconnectFolder()}
+              className="rounded border border-slate-300 px-2 py-2 text-xs text-slate-700 hover:bg-slate-50"
+            >
+              Disconnect
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={() => void connectFolder()}
+            className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+          >
+            Choose a folder…
+          </button>
+          <p className="text-[11px] text-slate-500">
+            Every project is written there as its own .busmap.json file and kept
+            up to date as you edit.
+          </p>
+        </>
+      )}
+      {folder.error && (
+        <p className="rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+          {folder.error}
+        </p>
+      )}
+      {warnings.length > 0 && (
+        <ul className="space-y-1 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+          {warnings.map((warning, index) => (
+            <li key={`${warning}-${index}`}>{warning}</li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
 
 export function DataTab({ project }: { project: Project }) {
   const importProject = useStore((s) => s.importProject)
@@ -204,6 +301,8 @@ export function DataTab({ project }: { project: Project }) {
           </ul>
         )}
       </section>
+
+      <FolderSync />
     </div>
   )
 }

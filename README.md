@@ -34,14 +34,28 @@ npm run dev      # http://localhost:5173
 - `src/store/useStore.ts` — Zustand store: workspace with multiple projects,
   active project, tab state, debounced autosave.
 - `src/store/storage.ts` — persistence behind a small async interface. The
-  default backend is IndexedDB; a File System Access backend can be added
-  without touching the store.
+  default backend is IndexedDB.
+- `src/lib/folderSync.ts` — optional File System Access mirror: each project is
+  written to a picked folder as its own `*.busmap.json` and can be read back.
+  Chrome/Edge only; the Data tab hides it elsewhere.
 - `src/lib/serialize.ts` — persistence codec. Road geometry is stored as an
   encoded polyline rather than a coordinate array.
-- `src/components/` — header (project switcher), sidebar tabs, Leaflet map.
+- `src/components/` — header (project switcher, undo/redo), sidebar tabs,
+  Leaflet map, map legend.
+- `src/hooks/useShortcuts.ts` — global keyboard shortcuts; letter keys are
+  ignored while typing in a field.
 
 ### Scale target
 
 The app targets networks of ~10,000 stops and ~500 lines. Consequences already
 baked in: IndexedDB instead of localStorage, polyline-encoded geometry, and a
 canvas-rendered Leaflet map. Sidebar lists are virtualized as they are built.
+
+## Keyboard shortcuts
+
+`S`/`W` place a stop/waypoint, `1`/`2`/`3` switch tabs, `Ctrl+Z` /
+`Ctrl+Shift+Z` undo and redo, `L` toggles the legend, `Esc` cancels what is in
+progress, `?` lists them in the app.
+
+Undo covers edits to the data. Map panning/zooming and routes arriving from
+OSRM are not undo steps, and undo keeps the current map view.
