@@ -74,6 +74,12 @@ info (a platform number, an entrance…): it is never inherited, and it is shown
 in grey next to the name in the list, the map tooltip and every line's stop
 order. Waypoints stay plain: grey, `Waypoint N`, no editor.
 
+### Connecting
+
+While a branch is being connected or edited, clicking a stop threads it in and
+clicking the map away from any node drops a waypoint there and connects it in
+the same step, so a detour along a road needs no separate placement round.
+
 ### Colours
 
 Stops and lines are coloured from the same picker: the colours picked lately

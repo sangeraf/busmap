@@ -99,6 +99,7 @@ const RECENT_COLORS_KEY = 'busmap.recentColors'
 /** Recently picked colours are a workspace-wide preference, not project data. */
 export const recentColorsStorage = {
   async load(): Promise<string[]> {
+    if (typeof indexedDB === 'undefined') return []
     try {
       const stored = await idbGet<string[]>(RECENT_COLORS_KEY)
       return Array.isArray(stored)
@@ -110,6 +111,7 @@ export const recentColorsStorage = {
     }
   },
   async save(colors: string[]): Promise<void> {
+    if (typeof indexedDB === 'undefined') return
     try {
       await idbSet(RECENT_COLORS_KEY, colors)
     } catch (error) {

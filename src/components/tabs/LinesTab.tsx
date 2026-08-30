@@ -136,7 +136,8 @@ export function LinesTab({ project }: { project: Project }) {
                 ? 'Click the stops to insert, in order.'
                 : connect.anchorId
                   ? 'Click the next stop to connect.'
-                  : 'Click the first stop of the chain.'}
+                  : 'Click the first stop of the chain.'}{' '}
+              Empty map adds a waypoint.
             </span>
             <button
               type="button"

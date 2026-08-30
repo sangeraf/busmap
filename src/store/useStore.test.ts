@@ -214,6 +214,86 @@ describe('workspace store', () => {
     ])
   })
 
+  it('turns a click on empty map into a connected waypoint', () => {
+    const store = useStore.getState()
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.52, 19.02)
+    const line = store.addLine({ name: '7' })
+
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectTo(a.id)
+    useStore.getState().connectAt(47.51, 19.01)
+    useStore.getState().connectTo(b.id)
+
+    const project = activeProjectState()
+    const waypoints = Object.values(project.nodes).filter(
+      (node) => node.kind === 'waypoint',
+    )
+    expect(waypoints).toHaveLength(1)
+    expect(waypoints[0].name).toBe('Waypoint 1')
+    expect(
+      activeLine(line.id).segments.map((segment) => [segment.from, segment.to]),
+    ).toEqual([
+      [a.id, waypoints[0].id],
+      [waypoints[0].id, b.id],
+    ])
+  })
+
+  it('places and wires a waypoint in one undo step', () => {
+    const store = useStore.getState()
+    const a = store.addNode('stop', 47.5, 19.0)
+    const line = store.addLine({ name: '7' })
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectTo(a.id)
+    useStore.getState().connectAt(47.51, 19.01)
+
+    useStore.getState().undo()
+    const project = activeProjectState()
+    expect(Object.values(project.nodes)).toHaveLength(1)
+    expect(project.lines[line.id].segments).toHaveLength(0)
+  })
+
+  it('anchors an empty branch on a waypoint clicked on the map', () => {
+    const store = useStore.getState()
+    const line = store.addLine({ name: '7' })
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectAt(47.5, 19.0)
+
+    const [waypoint] = Object.values(activeProjectState().nodes)
+    expect(waypoint.kind).toBe('waypoint')
+    expect(useStore.getState().connect?.anchorId).toBe(waypoint.id)
+    expect(activeLine(line.id).segments).toHaveLength(0)
+  })
+
+  it('inserts a map-clicked waypoint into an existing connection', () => {
+    const store = useStore.getState()
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.52, 19.02)
+    const line = store.addLine({ name: '7' })
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectTo(a.id)
+    useStore.getState().connectTo(b.id)
+
+    useStore.getState().startConnecting(line.id, line.groups[0].id, {
+      anchorId: a.id,
+      bridgeId: activeLine(line.id).segments[0].id,
+    })
+    useStore.getState().connectAt(47.505, 19.005)
+    useStore.getState().connectAt(47.515, 19.015)
+
+    const waypoints = Object.values(activeProjectState().nodes).filter(
+      (node) => node.kind === 'waypoint',
+    )
+    expect(waypoints).toHaveLength(2)
+    expect(
+      activeLine(line.id).segments.map((segment) => [segment.from, segment.to]),
+    ).toEqual([
+      [a.id, waypoints[0].id],
+      [waypoints[0].id, waypoints[1].id],
+      [waypoints[1].id, b.id],
+    ])
+  })
+
   it('inserts clicked stops into an existing connection', () => {
     const store = useStore.getState()
     const a = store.addNode('stop', 47.5, 19.0)

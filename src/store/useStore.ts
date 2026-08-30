@@ -155,6 +155,7 @@ interface StoreState {
   ) => void
   stopConnecting: () => void
   connectTo: (nodeId: NodeId) => void
+  connectAt: (lat: number, lng: number) => void
   removeSegment: (lineId: LineId, segmentId: SegmentId) => void
   removeStop: (
     lineId: LineId,
@@ -317,6 +318,61 @@ export const useStore = create<StoreState>((set, get) => {
         },
       }))
     }
+  }
+
+  /**
+   * Adds a node to the branch being connected. `create` marks a node that is
+   * not in the project yet, so placing it and wiring it up is one undo step.
+   */
+  function threadIntoConnection(node: MapNode, create: boolean) {
+    const { connect } = get()
+    if (!connect) return
+    const { anchorId, bridgeId } = connect
+    const anchorOnly = !bridgeId && (!anchorId || anchorId === node.id)
+
+    let nextBridgeId: SegmentId | null = null
+    if (create || !anchorOnly) {
+      commit((workspace) => {
+        const project = activeProject(workspace)
+        const line = project?.lines[connect.lineId]
+        if (!project || !line) return
+        if (create) project.nodes[node.id] = node
+        if (!anchorOnly) {
+          if (bridgeId) {
+            nextBridgeId = insertStop(
+              line,
+              bridgeId,
+              node,
+              project.nodes,
+              anchorId ? 'after' : 'before',
+              get().defaultSegmentMode,
+            )
+          } else {
+            const from = anchorId ? project.nodes[anchorId] : undefined
+            if (!from) return
+            line.segments.push(
+              createSegment(
+                from,
+                node,
+                connect.groupId,
+                get().defaultSegmentMode,
+              ),
+            )
+          }
+        }
+        project.updatedAt = new Date().toISOString()
+      })
+    }
+
+    set({
+      connect: {
+        ...connect,
+        anchorId: node.id,
+        bridgeId: anchorOnly || !bridgeId ? connect.bridgeId : nextBridgeId,
+      },
+      ...(create ? { selectedNodeId: node.id } : {}),
+    })
+    if (!anchorOnly) void get().routeStaleSegments()
   }
 
   async function routePending() {
@@ -768,51 +824,22 @@ export const useStore = create<StoreState>((set, get) => {
      * very first click of an empty branch only anchors).
      */
     connectTo: (nodeId) => {
-      const { connect } = get()
-      if (!connect) return
-      const { anchorId, bridgeId } = connect
-      if (!bridgeId && (!anchorId || anchorId === nodeId)) {
-        set({ connect: { ...connect, anchorId: nodeId } })
-        return
-      }
+      const node = activeProject(get().workspace)?.nodes[nodeId]
+      if (!node) return
+      threadIntoConnection(node, false)
+    },
 
-      let nextBridgeId: SegmentId | null = null
-      commit((workspace) => {
-        const project = activeProject(workspace)
-        const line = project?.lines[connect.lineId]
-        const node = project?.nodes[nodeId]
-        if (!project || !line || !node) return
-        if (bridgeId) {
-          nextBridgeId = insertStop(
-            line,
-            bridgeId,
-            node,
-            project.nodes,
-            anchorId ? 'after' : 'before',
-            get().defaultSegmentMode,
-          )
-        } else {
-          const from = anchorId ? project.nodes[anchorId] : undefined
-          if (!from) return
-          line.segments.push(
-            createSegment(
-              from,
-              node,
-              connect.groupId,
-              get().defaultSegmentMode,
-            ),
-          )
-        }
-        project.updatedAt = new Date().toISOString()
-      })
-      set({
-        connect: {
-          ...connect,
-          anchorId: nodeId,
-          bridgeId: bridgeId ? nextBridgeId : null,
-        },
-      })
-      void get().routeStaleSegments()
+    /**
+     * Clicking the map away from a node while connecting drops a waypoint
+     * there and threads it in, so a detour needs no separate placement round.
+     */
+    connectAt: (lat, lng) => {
+      const project = activeProject(get().workspace)
+      if (!project || !get().connect) return
+      const existing = Object.values(project.nodes).filter(
+        (node) => node.kind === 'waypoint',
+      ).length
+      threadIntoConnection(createNode('waypoint', lat, lng, existing + 1), true)
     },
 
     removeSegment: (lineId, segmentId) =>
