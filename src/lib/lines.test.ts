@@ -11,7 +11,7 @@ import {
   lineStopIds,
   removeChainStop,
   removeNodeFromLine,
-  reorderSegment,
+  moveChainStop,
 } from './lines'
 import type { Line, MapNode } from '../types'
 
@@ -182,13 +182,13 @@ describe('removing a stop from a line', () => {
   })
 })
 
-describe('reorderSegment', () => {
+describe('moveChainStop', () => {
   it('reorders the stop sequence without breaking the chain', () => {
     const nodes = stops(4)
     const line = createLine({ name: '7' })
     chained(line, nodes, line.groups[0].id)
 
-    reorderSegment(line, line.segments[2].id, -1, nodeMap(nodes))
+    moveChainStop(line, 0, 3, -1, nodeMap(nodes))
 
     const chains = lineChains(line)
     expect(chains).toHaveLength(1)
@@ -204,16 +204,31 @@ describe('reorderSegment', () => {
     ])
   })
 
+  it('swaps the first two stops in either direction', () => {
+    const nodes = stops(3)
+    const line = createLine({ name: '7' })
+    chained(line, nodes, line.groups[0].id)
+
+    moveChainStop(line, 0, 0, 1, nodeMap(nodes))
+    expect(lineChains(line)[0].nodeIds).toEqual([
+      nodes[1].id,
+      nodes[0].id,
+      nodes[2].id,
+    ])
+
+    moveChainStop(line, 0, 1, -1, nodeMap(nodes))
+    expect(lineChains(line)[0].nodeIds).toEqual(nodes.map((node) => node.id))
+  })
+
   it('stays inside its own chain and clamps at the ends', () => {
     const nodes = stops(5)
     const line = createLine({ name: '7' })
     const groupId = line.groups[0].id
     chained(line, nodes.slice(0, 3), groupId)
     line.segments.push(createSegment(nodes[3], nodes[4], groupId))
-    const detached = line.segments[2]
 
-    reorderSegment(line, detached.id, -1, nodeMap(nodes))
-    reorderSegment(line, line.segments[0].id, -1, nodeMap(nodes))
+    moveChainStop(line, 1, 0, -1, nodeMap(nodes))
+    moveChainStop(line, 1, 1, 1, nodeMap(nodes))
 
     expect(lineChains(line).map((chain) => chain.nodeIds)).toEqual([
       [nodes[0].id, nodes[1].id, nodes[2].id],
@@ -228,9 +243,9 @@ describe('reorderSegment', () => {
     line.segments.push(createSegment(nodes[0], nodes[1], groupId))
     line.segments.push(createSegment(nodes[1], nodes[2], groupId, 'road'))
 
-    reorderSegment(line, line.segments[1].id, -1, nodeMap(nodes))
+    moveChainStop(line, 0, 0, 1, nodeMap(nodes))
 
-    expect(line.segments[0].stale).toBe(true)
+    expect(line.segments[1].stale).toBe(true)
   })
 })
 

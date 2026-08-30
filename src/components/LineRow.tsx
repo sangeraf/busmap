@@ -33,7 +33,7 @@ export function LineRow({ line, project }: Props) {
   const startConnecting = useStore((s) => s.startConnecting)
   const stopConnecting = useStore((s) => s.stopConnecting)
   const removeStop = useStore((s) => s.removeStop)
-  const moveSegment = useStore((s) => s.moveSegment)
+  const moveStop = useStore((s) => s.moveStop)
   const setSegmentMode = useStore((s) => s.setSegmentMode)
   const setLineMode = useStore((s) => s.setLineMode)
 
@@ -315,29 +315,29 @@ export function LineRow({ line, project }: Props) {
                                 {incoming.mode === 'road' ? '↝' : '╱'}
                               </button>
                             )}
-                            {incoming && (
-                              <>
-                                <button
-                                  type="button"
-                                  title="Move earlier"
-                                  onClick={() =>
-                                    moveSegment(line.id, incoming.id, -1)
-                                  }
-                                  className="hover:text-slate-900"
-                                >
-                                  ↑
-                                </button>
-                                <button
-                                  type="button"
-                                  title="Move later"
-                                  onClick={() =>
-                                    moveSegment(line.id, incoming.id, 1)
-                                  }
-                                  className="hover:text-slate-900"
-                                >
-                                  ↓
-                                </button>
-                              </>
+                            {index > 0 && (
+                              <button
+                                type="button"
+                                title="Move earlier"
+                                onClick={() =>
+                                  moveStop(line.id, chainIndex, index, -1)
+                                }
+                                className="hover:text-slate-900"
+                              >
+                                ↑
+                              </button>
+                            )}
+                            {index < chain.nodeIds.length - 1 && (
+                              <button
+                                type="button"
+                                title="Move later"
+                                onClick={() =>
+                                  moveStop(line.id, chainIndex, index, 1)
+                                }
+                                className="hover:text-slate-900"
+                              >
+                                ↓
+                              </button>
                             )}
                             <button
                               type="button"

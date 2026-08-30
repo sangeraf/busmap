@@ -222,8 +222,8 @@ describe('workspace store', () => {
     useStore.getState().startConnecting(line.id, line.groups[0].id)
     for (const node of nodes) useStore.getState().connectTo(node.id)
 
-    const [first, second] = activeLine(line.id).segments
-    useStore.getState().moveSegment(line.id, second.id, -1)
+    const [first] = activeLine(line.id).segments
+    useStore.getState().moveStop(line.id, 0, 2, -1)
     const moved = activeLine(line.id).segments
     expect(moved.map((segment) => [segment.from, segment.to])).toEqual([
       [nodes[0].id, nodes[2].id],

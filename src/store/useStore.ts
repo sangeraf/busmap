@@ -24,7 +24,7 @@ import {
   insertStop,
   removeChainStop,
   removeNodeFromLine,
-  reorderSegment,
+  moveChainStop,
 } from '../lib/lines'
 import { createId } from '../lib/id'
 import {
@@ -115,7 +115,12 @@ interface StoreState {
     incomingSegmentId: SegmentId | null,
     outgoingSegmentId: SegmentId | null,
   ) => void
-  moveSegment: (lineId: LineId, segmentId: SegmentId, delta: number) => void
+  moveStop: (
+    lineId: LineId,
+    chainIndex: number,
+    stopIndex: number,
+    delta: number,
+  ) => void
   setDefaultSegmentMode: (mode: SegmentMode) => void
   setSegmentMode: (
     lineId: LineId,
@@ -579,13 +584,13 @@ export const useStore = create<StoreState>((set, get) => {
       void get().routeStaleSegments()
     },
 
-    /** Reorder a segment within its own chain, keeping the chain connected. */
-    moveSegment: (lineId, segmentId, delta) => {
+    /** Move a stop within its own chain, keeping the chain connected. */
+    moveStop: (lineId, chainIndex, stopIndex, delta) => {
       commit((workspace) => {
         const project = activeProject(workspace)
         const line = project?.lines[lineId]
         if (!project || !line) return
-        reorderSegment(line, segmentId, delta, project.nodes)
+        moveChainStop(line, chainIndex, stopIndex, delta, project.nodes)
         project.updatedAt = new Date().toISOString()
       })
       void get().routeStaleSegments()
