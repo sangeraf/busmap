@@ -85,7 +85,12 @@ export function NodeRow({ node, project, lineIds }: Props) {
           <input
             value={node.info ?? ''}
             onChange={(event) =>
-              updateNode(node.id, { info: event.target.value || undefined })
+              updateNode(node.id, {
+                // Trimming here would swallow spaces as they are typed.
+                info: event.target.value.trim()
+                  ? event.target.value
+                  : undefined,
+              })
             }
             placeholder="Platform, entrance…"
             aria-label="Extra info"
