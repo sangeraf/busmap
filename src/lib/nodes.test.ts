@@ -6,6 +6,7 @@ import {
   createNode,
   createNodeFuse,
   filterNodes,
+  nearestNode,
 } from './nodes'
 import type { MapNode } from '../types'
 
@@ -63,6 +64,28 @@ describe('node filtering', () => {
     expect(stops[0].name).toBe('Stop 0')
     expect(stops[1].name).toBe('Stop 1')
     expect(stops[2].name).toBe('Stop 2')
+  })
+})
+
+describe('nearest node', () => {
+  it('picks the closest node of the same kind inside the radius', () => {
+    const near = createNode('stop', 47.5, 19.0, 1)
+    near.name = 'Deák Ferenc tér'
+    const closer = createNode('stop', 47.5001, 19.0, 2)
+    closer.name = 'Deák Ferenc tér M'
+    const waypoint = createNode('waypoint', 47.50005, 19.0, 3)
+    const nodes = [near, closer, waypoint]
+
+    expect(nearestNode(nodes, 'stop', 47.50011, 19.0)?.name).toBe(
+      'Deák Ferenc tér M',
+    )
+    expect(nearestNode(nodes, 'waypoint', 47.50011, 19.0)).toBe(waypoint)
+  })
+
+  it('ignores nodes beyond the radius', () => {
+    const far = createNode('stop', 47.5, 19.0, 1)
+    // ~0.01° of latitude is over a kilometre.
+    expect(nearestNode([far], 'stop', 47.51, 19.0)).toBeNull()
   })
 })
 

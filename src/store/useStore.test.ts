@@ -1,6 +1,7 @@
 import polyline from '@mapbox/polyline'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setStorageBackend, useStore } from './useStore'
+import { STOP_COLOR, WAYPOINT_COLOR } from '../lib/nodes'
 import { clearRouteCache } from '../lib/routing'
 import { parseProjectFile } from '../lib/exchange'
 import type { LatLng } from '../types'
@@ -40,6 +41,8 @@ describe('workspace store', () => {
       connect: null,
       selectedNodeId: null,
       selectedLineId: null,
+      namingNodeId: null,
+      lastStopColor: STOP_COLOR,
     })
     await useStore.getState().hydrate()
   })
@@ -137,6 +140,54 @@ describe('workspace store', () => {
     expect(first.name).toBe('Stop 1')
     expect(second.name).toBe('Stop 2')
     expect(waypoint.name).toBe('Waypoint 1')
+  })
+
+  it('prefills a new stop from its neighbour and the last colour', () => {
+    const first = useStore.getState().addNode('stop', 47.5, 19.0)
+    useStore.getState().updateNode(first.id, {
+      name: 'Astoria',
+      color: '#ff0000',
+    })
+
+    // ~30 m away: same stop, other direction.
+    const near = useStore.getState().addNode('stop', 47.50027, 19.0)
+    expect(near.name).toBe('Astoria')
+    expect(near.color).toBe('#ff0000')
+    expect(useStore.getState().namingNodeId).toBe(near.id)
+
+    const far = useStore.getState().addNode('stop', 47.53, 19.0)
+    expect(far.name).toBe('Stop 3')
+    expect(far.color).toBe('#ff0000')
+  })
+
+  it('never inherits the extra info of a neighbour', () => {
+    const first = useStore.getState().addNode('stop', 47.5, 19.0)
+    useStore.getState().updateNode(first.id, { name: 'Astoria', info: '2' })
+
+    const near = useStore.getState().addNode('stop', 47.50027, 19.0)
+    expect(near.name).toBe('Astoria')
+    expect(near.info).toBeUndefined()
+  })
+
+  it('keeps waypoints plain and skips their quick editor', () => {
+    const stop = useStore.getState().addNode('stop', 47.5, 19.0)
+    useStore.getState().updateNode(stop.id, {
+      name: 'Astoria',
+      color: '#ff0000',
+    })
+
+    const waypoint = useStore.getState().addNode('waypoint', 47.50027, 19.0)
+    expect(waypoint.name).toBe('Waypoint 1')
+    expect(waypoint.color).toBe(WAYPOINT_COLOR)
+    expect(useStore.getState().namingNodeId).toBeNull()
+
+    useStore.getState().updateNode(waypoint.id, { color: '#00ff00' })
+    expect(useStore.getState().addNode('waypoint', 47.5003, 19.0).color).toBe(
+      WAYPOINT_COLOR,
+    )
+    expect(useStore.getState().addNode('stop', 47.6, 19.0).color).toBe(
+      '#ff0000',
+    )
   })
 
   it('chains clicked stops into directed segments', () => {
@@ -447,6 +498,19 @@ describe('workspace store', () => {
     useStore.getState().redo()
     expect(activeProjectState().nodes[node.id].name).toBe('Deák tér')
     expect(useStore.getState().history.future).toBe(0)
+  })
+
+  it('costs no undo step when an edit changes nothing', () => {
+    const node = useStore.getState().addNode('stop', 47.5, 19.0)
+    // What the quick editor writes again when it closes.
+    useStore.getState().updateNode(node.id, {
+      name: node.name,
+      color: node.color,
+    })
+    expect(useStore.getState().history.past).toBe(1)
+
+    useStore.getState().undo()
+    expect(activeProjectState().nodes[node.id]).toBeUndefined()
   })
 
   it('drops the redo stack once a new edit lands', () => {

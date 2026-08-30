@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { NodeInfo } from './NodeInfo'
 import { useStore } from '../store/useStore'
 import type { LineId, MapNode, Project } from '../types'
 
@@ -38,6 +39,7 @@ export function NodeRow({ node, project, lineIds }: Props) {
           className="min-w-0 flex-1 truncate text-left text-sm text-slate-800"
         >
           {node.name}
+          <NodeInfo info={node.info} />
         </button>
         <span className="shrink-0 text-[11px] text-slate-400">
           {node.kind === 'waypoint' ? 'waypoint' : `${lineCount} lines`}
@@ -78,6 +80,15 @@ export function NodeRow({ node, project, lineIds }: Props) {
           <input
             value={node.name}
             onChange={(event) => updateNode(node.id, { name: event.target.value })}
+            className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+          />
+          <input
+            value={node.info ?? ''}
+            onChange={(event) =>
+              updateNode(node.id, { info: event.target.value || undefined })
+            }
+            placeholder="Platform, entrance…"
+            aria-label="Extra info"
             className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
           />
           <div className="flex items-center gap-2 text-xs">

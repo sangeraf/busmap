@@ -13,6 +13,7 @@ import type { Project } from '../types'
 function sample(): Project {
   const project = createProject('Budapest')
   const a = createNode('stop', 47.5, 19.0, 1)
+  a.info = 'Platform 2'
   const b = createNode('stop', 47.51, 19.02, 2)
   project.nodes[a.id] = a
   project.nodes[b.id] = b
@@ -45,6 +46,9 @@ describe('project export', () => {
     expect(Object.keys(result.project.nodes)).toEqual(
       Object.keys(project.nodes),
     )
+    const [firstNode, secondNode] = Object.values(result.project.nodes)
+    expect(firstNode.info).toBe('Platform 2')
+    expect(secondNode.info).toBeUndefined()
     const [line] = Object.values(result.project.lines)
     const original = Object.values(project.lines)[0]
     expect(line.name).toBe('7')

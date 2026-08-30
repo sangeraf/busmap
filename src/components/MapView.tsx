@@ -12,7 +12,6 @@ interface Props {
 
 function MapEvents({ onViewChange }: { onViewChange: Props['onViewChange'] }) {
   const placementKind = useStore((s) => s.placementKind)
-  const setPlacementKind = useStore((s) => s.setPlacementKind)
   const addNode = useStore((s) => s.addNode)
 
   useMapEvents({
@@ -23,8 +22,8 @@ function MapEvents({ onViewChange }: { onViewChange: Props['onViewChange'] }) {
     },
     click(event) {
       if (!placementKind) return
+      // Placement stays armed so a row of stops can be clicked out in one go.
       addNode(placementKind, event.latlng.lat, event.latlng.lng)
-      setPlacementKind(null)
     },
   })
   return null

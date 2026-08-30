@@ -25,7 +25,7 @@ import {
   writeProjects,
   type SyncDirectoryHandle,
 } from '../lib/folderSync'
-import { createNode } from '../lib/nodes'
+import { STOP_COLOR, createNode, nearestNode } from '../lib/nodes'
 import {
   applySegmentMode,
   createLine,
@@ -101,6 +101,10 @@ interface StoreState {
   hoveredNodeId: NodeId | null
   selectedLineId: LineId | null
   connect: ConnectState | null
+  /** Stop whose quick name/colour editor is open right after placing it. */
+  namingNodeId: NodeId | null
+  /** Colour given to the next stop; waypoints stay grey. */
+  lastStopColor: string
   /** Mode used for connections created from now on. */
   defaultSegmentMode: SegmentMode
   routing: RoutingState
@@ -117,6 +121,7 @@ interface StoreState {
   setPlacementKind: (kind: NodeKind | null) => void
   setSelectedNode: (id: NodeId | null) => void
   setHoveredNode: (id: NodeId | null) => void
+  setNamingNode: (id: NodeId | null) => void
   addNode: (kind: NodeKind, lat: number, lng: number) => MapNode
   updateNode: (id: NodeId, patch: Partial<Omit<MapNode, 'id'>>) => void
   deleteNode: (id: NodeId) => void
@@ -395,6 +400,8 @@ export const useStore = create<StoreState>((set, get) => {
     hoveredNodeId: null,
     selectedLineId: null,
     connect: null,
+    namingNodeId: null,
+    lastStopColor: STOP_COLOR,
     defaultSegmentMode: 'straight',
     routing: { pending: 0, failed: 0, error: null },
     history: { past: 0, future: 0 },
@@ -526,6 +533,13 @@ export const useStore = create<StoreState>((set, get) => {
 
     setHoveredNode: (id) => set({ hoveredNodeId: id }),
 
+    setNamingNode: (id) => set({ namingNodeId: id }),
+
+    /**
+     * A new stop starts from the last colour used and, when another stop sits
+     * within 200 m, borrows its name, so the quick editor usually only needs
+     * an Enter. Waypoints stay plain and skip the editor entirely.
+     */
     addNode: (kind, lat, lng) => {
       const project = get().workspace.activeProjectId
         ? get().workspace.projects[get().workspace.activeProjectId!]
@@ -535,6 +549,13 @@ export const useStore = create<StoreState>((set, get) => {
             .length
         : 0
       const node = createNode(kind, lat, lng, existing + 1)
+      if (kind === 'stop') {
+        node.color = get().lastStopColor
+        const neighbour = project
+          ? nearestNode(Object.values(project.nodes), 'stop', lat, lng)
+          : null
+        if (neighbour) node.name = neighbour.name
+      }
       commit((workspace) => {
         const id = workspace.activeProjectId
         const target = id ? workspace.projects[id] : undefined
@@ -542,11 +563,22 @@ export const useStore = create<StoreState>((set, get) => {
         target.nodes[node.id] = node
         target.updatedAt = new Date().toISOString()
       })
-      set({ selectedNodeId: node.id })
+      set({
+        selectedNodeId: node.id,
+        namingNodeId: kind === 'stop' ? node.id : null,
+      })
       return node
     },
 
     updateNode: (id, patch) => {
+      const current = activeProject(get().workspace)?.nodes[id]
+      if (!current) return
+      // `updatedAt` alone would make a no-op edit look like a change and cost
+      // an undo step, so patches that change nothing are dropped here.
+      const entries = Object.entries(patch) as [keyof MapNode, unknown][]
+      if (entries.every(([key, value]) => current[key] === value)) return
+      const kind = patch.kind ?? current.kind
+      if (patch.color && kind === 'stop') set({ lastStopColor: patch.color })
       commit((workspace) => {
         const projectId = workspace.activeProjectId
         const project = projectId ? workspace.projects[projectId] : undefined
@@ -591,6 +623,7 @@ export const useStore = create<StoreState>((set, get) => {
         project.updatedAt = new Date().toISOString()
       })
       if (get().selectedNodeId === id) set({ selectedNodeId: null })
+      if (get().namingNodeId === id) set({ namingNodeId: null })
       const { connect } = get()
       if (connect?.anchorId === id)
         set({ connect: { ...connect, anchorId: null } })

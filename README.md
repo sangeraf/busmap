@@ -63,6 +63,17 @@ The app targets networks of ~10,000 stops and ~500 lines. Consequences already
 baked in: IndexedDB instead of localStorage, polyline-encoded geometry, and a
 canvas-rendered Leaflet map. Sidebar lists are virtualized as they are built.
 
+### Placing stops
+
+Placement mode stays armed until it is switched off, and every placed stop
+opens a small name/colour editor with the name focused, so a row of stops is
+`S`, click, type, Enter, click, type, Enter… The name is prefilled from the
+nearest stop within 200 m (usually the other direction of the same stop), and
+the colour is the last one used. The editor's second field is the stop's extra
+info (a platform number, an entrance…): it is never inherited, and it is shown
+in grey next to the name in the list, the map tooltip and every line's stop
+order. Waypoints stay plain: grey, `Waypoint N`, no editor.
+
 ## Keyboard shortcuts
 
 `S`/`W` place a stop/waypoint, `1`/`2`/`3` switch tabs, `Ctrl+Z` /
