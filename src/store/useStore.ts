@@ -83,6 +83,7 @@ interface StoreState {
   deleteLineType: (id: TypeId) => void
   addBranch: (lineId: LineId) => void
   renameBranch: (lineId: LineId, groupId: GroupId, label: string) => void
+  deleteBranch: (lineId: LineId, groupId: GroupId) => void
   startConnecting: (
     lineId: LineId,
     groupId: GroupId,
@@ -322,6 +323,24 @@ export const useStore = create<StoreState>((set, get) => {
           label: `Branch ${line.groups.length + 1}`,
         })
       }),
+
+    /** Drops a branch together with every connection that belongs to it. */
+    deleteBranch: (lineId, groupId) => {
+      commit((workspace) => {
+        const project = activeProject(workspace)
+        const line = project?.lines[lineId]
+        if (!project || !line) return
+        line.groups = line.groups.filter((group) => group.id !== groupId)
+        line.segments = line.segments.filter(
+          (segment) => segment.groupId !== groupId,
+        )
+        project.updatedAt = new Date().toISOString()
+      })
+      const { connect } = get()
+      if (connect?.lineId === lineId && connect.groupId === groupId) {
+        set({ connect: null })
+      }
+    },
 
     renameBranch: (lineId, groupId, label) =>
       commit((workspace) => {

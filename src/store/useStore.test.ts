@@ -172,6 +172,33 @@ describe('workspace store', () => {
     ])
   })
 
+  it('deletes a branch with all of its connections', () => {
+    const store = useStore.getState()
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.51, 19.01)
+    const line = store.addLine({ name: '7' })
+    const outbound = line.groups[0].id
+    useStore.getState().addBranch(line.id)
+    const inbound = activeLine(line.id).groups[1].id
+
+    useStore.getState().startConnecting(line.id, outbound)
+    useStore.getState().connectTo(a.id)
+    useStore.getState().connectTo(b.id)
+    useStore.getState().startConnecting(line.id, inbound)
+    useStore.getState().connectTo(b.id)
+    useStore.getState().connectTo(a.id)
+
+    useStore.getState().startConnecting(line.id, outbound)
+    useStore.getState().deleteBranch(line.id, outbound)
+
+    const updated = activeLine(line.id)
+    expect(updated.groups.map((group) => group.id)).toEqual([inbound])
+    expect(
+      updated.segments.map((segment) => [segment.from, segment.to]),
+    ).toEqual([[b.id, a.id]])
+    expect(useStore.getState().connect).toBeNull()
+  })
+
   it('reorders and removes connections', () => {
     const store = useStore.getState()
     const nodes = [
