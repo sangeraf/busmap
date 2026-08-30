@@ -42,7 +42,7 @@ describe('workspace store', () => {
       selectedNodeId: null,
       selectedLineId: null,
       namingNodeId: null,
-      lastColor: { stop: STOP_COLOR, waypoint: WAYPOINT_COLOR },
+      lastStopColor: STOP_COLOR,
     })
     await useStore.getState().hydrate()
   })
@@ -158,10 +158,26 @@ describe('workspace store', () => {
     const far = useStore.getState().addNode('stop', 47.53, 19.0)
     expect(far.name).toBe('Stop 3')
     expect(far.color).toBe('#ff0000')
+  })
 
-    // Colours are remembered per kind.
-    expect(useStore.getState().addNode('waypoint', 47.6, 19.0).color).toBe(
+  it('keeps waypoints plain and skips their quick editor', () => {
+    const stop = useStore.getState().addNode('stop', 47.5, 19.0)
+    useStore.getState().updateNode(stop.id, {
+      name: 'Astoria',
+      color: '#ff0000',
+    })
+
+    const waypoint = useStore.getState().addNode('waypoint', 47.50027, 19.0)
+    expect(waypoint.name).toBe('Waypoint 1')
+    expect(waypoint.color).toBe(WAYPOINT_COLOR)
+    expect(useStore.getState().namingNodeId).toBeNull()
+
+    useStore.getState().updateNode(waypoint.id, { color: '#00ff00' })
+    expect(useStore.getState().addNode('waypoint', 47.5003, 19.0).color).toBe(
       WAYPOINT_COLOR,
+    )
+    expect(useStore.getState().addNode('stop', 47.6, 19.0).color).toBe(
+      '#ff0000',
     )
   })
 

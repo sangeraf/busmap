@@ -25,12 +25,7 @@ import {
   writeProjects,
   type SyncDirectoryHandle,
 } from '../lib/folderSync'
-import {
-  STOP_COLOR,
-  WAYPOINT_COLOR,
-  createNode,
-  nearestNode,
-} from '../lib/nodes'
+import { STOP_COLOR, createNode, nearestNode } from '../lib/nodes'
 import {
   applySegmentMode,
   createLine,
@@ -106,10 +101,10 @@ interface StoreState {
   hoveredNodeId: NodeId | null
   selectedLineId: LineId | null
   connect: ConnectState | null
-  /** Node whose quick name/colour editor is open right after placing it. */
+  /** Stop whose quick name/colour editor is open right after placing it. */
   namingNodeId: NodeId | null
-  /** Colour given to the next node of each kind. */
-  lastColor: Record<NodeKind, string>
+  /** Colour given to the next stop; waypoints stay grey. */
+  lastStopColor: string
   /** Mode used for connections created from now on. */
   defaultSegmentMode: SegmentMode
   routing: RoutingState
@@ -406,7 +401,7 @@ export const useStore = create<StoreState>((set, get) => {
     selectedLineId: null,
     connect: null,
     namingNodeId: null,
-    lastColor: { stop: STOP_COLOR, waypoint: WAYPOINT_COLOR },
+    lastStopColor: STOP_COLOR,
     defaultSegmentMode: 'straight',
     routing: { pending: 0, failed: 0, error: null },
     history: { past: 0, future: 0 },
@@ -541,9 +536,9 @@ export const useStore = create<StoreState>((set, get) => {
     setNamingNode: (id) => set({ namingNodeId: id }),
 
     /**
-     * A new node starts from the last colour used for its kind and, when a
-     * node of the same kind sits within 200 m, borrows that node's name, so
-     * the quick editor usually only needs an Enter.
+     * A new stop starts from the last colour used and, when another stop sits
+     * within 200 m, borrows its name, so the quick editor usually only needs
+     * an Enter. Waypoints stay plain and skip the editor entirely.
      */
     addNode: (kind, lat, lng) => {
       const project = get().workspace.activeProjectId
@@ -554,11 +549,13 @@ export const useStore = create<StoreState>((set, get) => {
             .length
         : 0
       const node = createNode(kind, lat, lng, existing + 1)
-      node.color = get().lastColor[kind]
-      const neighbour = project
-        ? nearestNode(Object.values(project.nodes), kind, lat, lng)
-        : null
-      if (neighbour) node.name = neighbour.name
+      if (kind === 'stop') {
+        node.color = get().lastStopColor
+        const neighbour = project
+          ? nearestNode(Object.values(project.nodes), 'stop', lat, lng)
+          : null
+        if (neighbour) node.name = neighbour.name
+      }
       commit((workspace) => {
         const id = workspace.activeProjectId
         const target = id ? workspace.projects[id] : undefined
@@ -566,19 +563,16 @@ export const useStore = create<StoreState>((set, get) => {
         target.nodes[node.id] = node
         target.updatedAt = new Date().toISOString()
       })
-      set({ selectedNodeId: node.id, namingNodeId: node.id })
+      set({
+        selectedNodeId: node.id,
+        namingNodeId: kind === 'stop' ? node.id : null,
+      })
       return node
     },
 
     updateNode: (id, patch) => {
-      if (patch.color) {
-        const kind =
-          patch.kind ??
-          activeProject(get().workspace)?.nodes[id]?.kind ??
-          'stop'
-        const color = patch.color
-        set((state) => ({ lastColor: { ...state.lastColor, [kind]: color } }))
-      }
+      const kind = patch.kind ?? activeProject(get().workspace)?.nodes[id]?.kind
+      if (patch.color && kind === 'stop') set({ lastStopColor: patch.color })
       commit((workspace) => {
         const projectId = workspace.activeProjectId
         const project = projectId ? workspace.projects[projectId] : undefined

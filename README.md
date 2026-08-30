@@ -65,11 +65,12 @@ canvas-rendered Leaflet map. Sidebar lists are virtualized as they are built.
 
 ### Placing stops
 
-Placement mode stays armed until it is switched off, and every placed node
+Placement mode stays armed until it is switched off, and every placed stop
 opens a small name/colour editor with the name focused, so a row of stops is
 `S`, click, type, Enter, click, type, Enter… The name is prefilled from the
-nearest node of the same kind within 200 m (the other direction of the same
-stop), and the colour is the last one used for that kind.
+nearest stop within 200 m (usually the other direction of the same stop), and
+the colour is the last one used. Waypoints stay plain: grey, `Waypoint N`, no
+editor.
 
 ## Keyboard shortcuts
 
