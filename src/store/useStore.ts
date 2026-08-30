@@ -1,7 +1,15 @@
 import { create } from 'zustand'
 import { produce } from 'immer'
-import type { LatLng, Project, ProjectId } from '../types'
+import type {
+  LatLng,
+  MapNode,
+  NodeId,
+  NodeKind,
+  Project,
+  ProjectId,
+} from '../types'
 import { createProject, duplicateProject } from '../lib/project'
+import { createNode } from '../lib/nodes'
 import {
   emptyWorkspace,
   indexedDbBackend,
@@ -18,8 +26,17 @@ interface StoreState {
   hydrated: boolean
   activeTab: TabId
   saveState: SaveState
+  placementKind: NodeKind | null
+  selectedNodeId: NodeId | null
+  hoveredNodeId: NodeId | null
   hydrate: () => Promise<void>
   setActiveTab: (tab: TabId) => void
+  setPlacementKind: (kind: NodeKind | null) => void
+  setSelectedNode: (id: NodeId | null) => void
+  setHoveredNode: (id: NodeId | null) => void
+  addNode: (kind: NodeKind, lat: number, lng: number) => MapNode
+  updateNode: (id: NodeId, patch: Partial<Omit<MapNode, 'id'>>) => void
+  deleteNode: (id: NodeId) => void
   createNewProject: (name: string) => void
   switchProject: (id: ProjectId) => void
   renameProject: (id: ProjectId, name: string) => void
@@ -75,6 +92,9 @@ export const useStore = create<StoreState>((set, get) => {
     hydrated: false,
     activeTab: 'stops',
     saveState: 'idle',
+    placementKind: null,
+    selectedNodeId: null,
+    hoveredNodeId: null,
 
     hydrate: async () => {
       if (get().hydrated) return
@@ -86,6 +106,77 @@ export const useStore = create<StoreState>((set, get) => {
     },
 
     setActiveTab: (tab) => set({ activeTab: tab }),
+
+    setPlacementKind: (kind) => set({ placementKind: kind }),
+
+    setSelectedNode: (id) => set({ selectedNodeId: id }),
+
+    setHoveredNode: (id) => set({ hoveredNodeId: id }),
+
+    addNode: (kind, lat, lng) => {
+      const project = get().workspace.activeProjectId
+        ? get().workspace.projects[get().workspace.activeProjectId!]
+        : undefined
+      const existing = project
+        ? Object.values(project.nodes).filter((node) => node.kind === kind)
+            .length
+        : 0
+      const node = createNode(kind, lat, lng, existing + 1)
+      commit((workspace) => {
+        const id = workspace.activeProjectId
+        const target = id ? workspace.projects[id] : undefined
+        if (!target) return
+        target.nodes[node.id] = node
+        target.updatedAt = new Date().toISOString()
+      })
+      set({ selectedNodeId: node.id })
+      return node
+    },
+
+    updateNode: (id, patch) =>
+      commit((workspace) => {
+        const projectId = workspace.activeProjectId
+        const project = projectId ? workspace.projects[projectId] : undefined
+        const node = project?.nodes[id]
+        if (!project || !node) return
+        Object.assign(node, patch)
+        if (patch.lat !== undefined || patch.lng !== undefined) {
+          for (const line of Object.values(project.lines)) {
+            for (const segment of line.segments) {
+              if (segment.from !== id && segment.to !== id) continue
+              if (segment.mode === 'road') {
+                segment.stale = true
+              } else {
+                const from = project.nodes[segment.from]
+                const to = project.nodes[segment.to]
+                if (from && to) {
+                  segment.geometry = [
+                    [from.lat, from.lng],
+                    [to.lat, to.lng],
+                  ]
+                }
+              }
+            }
+          }
+        }
+        project.updatedAt = new Date().toISOString()
+      }),
+
+    deleteNode: (id) => {
+      commit((workspace) => {
+        const projectId = workspace.activeProjectId
+        const project = projectId ? workspace.projects[projectId] : undefined
+        if (!project) return
+        delete project.nodes[id]
+        for (const line of Object.values(project.lines)) {
+          line.segments = line.segments.filter(
+            (segment) => segment.from !== id && segment.to !== id,
+          )
+        }
+        project.updatedAt = new Date().toISOString()
+      })
+      if (get().selectedNodeId === id) set({ selectedNodeId: null })
+    },
 
     createNewProject: (name) => {
       const project = createProject(name)

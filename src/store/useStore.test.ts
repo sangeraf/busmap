@@ -53,6 +53,31 @@ describe('workspace store', () => {
     expect(workspace.activeProjectId).not.toBe(only)
   })
 
+  it('adds, edits and deletes nodes', () => {
+    const node = useStore.getState().addNode('stop', 47.5, 19.04)
+    expect(useStore.getState().selectedNodeId).toBe(node.id)
+
+    useStore.getState().updateNode(node.id, { name: 'Deák tér' })
+    const active = () => {
+      const { workspace } = useStore.getState()
+      return workspace.projects[workspace.activeProjectId!]
+    }
+    expect(active().nodes[node.id].name).toBe('Deák tér')
+
+    useStore.getState().deleteNode(node.id)
+    expect(active().nodes[node.id]).toBeUndefined()
+    expect(useStore.getState().selectedNodeId).toBeNull()
+  })
+
+  it('numbers new nodes per kind', () => {
+    const first = useStore.getState().addNode('stop', 47.5, 19.04)
+    const second = useStore.getState().addNode('stop', 47.51, 19.05)
+    const waypoint = useStore.getState().addNode('waypoint', 47.52, 19.06)
+    expect(first.name).toBe('Stop 1')
+    expect(second.name).toBe('Stop 2')
+    expect(waypoint.name).toBe('Waypoint 1')
+  })
+
   it('persists the map view on the active project', () => {
     useStore.getState().setMapView([47.5, 19.05], 15)
     const { workspace } = useStore.getState()

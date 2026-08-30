@@ -1,30 +1,42 @@
 import { MapContainer, TileLayer, useMapEvents } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
-import type { LatLng } from '../types'
+import { useStore } from '../store/useStore'
+import type { LatLng, Project } from '../types'
+import { NodesLayer } from './NodesLayer'
 
 interface Props {
-  center: LatLng
-  zoom: number
+  project: Project
   onViewChange: (center: LatLng, zoom: number) => void
 }
 
-function ViewSync({ onViewChange }: { onViewChange: Props['onViewChange'] }) {
+function MapEvents({ onViewChange }: { onViewChange: Props['onViewChange'] }) {
+  const placementKind = useStore((s) => s.placementKind)
+  const setPlacementKind = useStore((s) => s.setPlacementKind)
+  const addNode = useStore((s) => s.addNode)
+
   useMapEvents({
     moveend(event) {
       const map = event.target
       const center = map.getCenter()
       onViewChange([center.lat, center.lng], map.getZoom())
     },
+    click(event) {
+      if (!placementKind) return
+      addNode(placementKind, event.latlng.lat, event.latlng.lng)
+      setPlacementKind(null)
+    },
   })
   return null
 }
 
-export function MapView({ center, zoom, onViewChange }: Props) {
+export function MapView({ project, onViewChange }: Props) {
+  const placementKind = useStore((s) => s.placementKind)
+
   return (
     <MapContainer
-      center={center}
-      zoom={zoom}
-      className="h-full w-full"
+      center={project.center}
+      zoom={project.zoom}
+      className={`h-full w-full ${placementKind ? 'cursor-crosshair' : ''}`}
       scrollWheelZoom
       preferCanvas
     >
@@ -33,7 +45,8 @@ export function MapView({ center, zoom, onViewChange }: Props) {
         url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         maxZoom={19}
       />
-      <ViewSync onViewChange={onViewChange} />
+      <MapEvents onViewChange={onViewChange} />
+      <NodesLayer project={project} />
     </MapContainer>
   )
 }

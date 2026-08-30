@@ -10,9 +10,19 @@ export default function App() {
   const project = useActiveProject()
   const setMapView = useStore((s) => s.setMapView)
 
+  const setPlacementKind = useStore((s) => s.setPlacementKind)
+
   useEffect(() => {
     void hydrate()
   }, [hydrate])
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setPlacementKind(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [setPlacementKind])
 
   if (!hydrated || !project) {
     return (
@@ -28,12 +38,7 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         <Sidebar project={project} />
         <main className="min-w-0 flex-1">
-          <MapView
-            key={project.id}
-            center={project.center}
-            zoom={project.zoom}
-            onViewChange={setMapView}
-          />
+          <MapView key={project.id} project={project} onViewChange={setMapView} />
         </main>
       </div>
     </div>
