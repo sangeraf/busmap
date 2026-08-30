@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { createNode } from './nodes'
+import { createNode, distanceM } from './nodes'
 import {
   DEFAULT_LINE_FILTERS,
   createLine,
   createLineFuse,
   createSegment,
   filterLines,
+  formatLengthM,
   lineChains,
+  lineLengthM,
   insertStop,
   lineStopIds,
   removeChainStop,
@@ -19,6 +21,10 @@ function stops(count: number): MapNode[] {
   return Array.from({ length: count }, (_, index) =>
     createNode('stop', 47.5 + index * 0.001, 19.0 + index * 0.001, index + 1),
   )
+}
+
+function distanceBetween(a: MapNode, b: MapNode): number {
+  return distanceM([a.lat, a.lng], [b.lat, b.lng])
 }
 
 function chained(line: Line, nodes: MapNode[], groupId: string) {
@@ -275,6 +281,42 @@ describe('moveChainStop', () => {
     moveChainStop(line, 0, 0, 1, nodeMap(nodes))
 
     expect(line.segments[1].stale).toBe(true)
+  })
+})
+
+describe('line length', () => {
+  it('sums every branch, following the drawn geometry', () => {
+    const nodes = stops(3)
+    const byId = Object.fromEntries(nodes.map((node) => [node.id, node]))
+    const line = createLine({ name: '9' })
+    const first = line.groups[0].id
+    chained(line, nodes, first)
+
+    const straight = lineLengthM(line, byId)
+    expect(straight).toBeGreaterThan(0)
+
+    const other = createNode('stop', 47.6, 19.1, 4)
+    byId[other.id] = other
+    line.groups.push({ id: 'grp-2', label: 'Branch 2' })
+    line.segments.push(createSegment(nodes[0], other, 'grp-2'))
+
+    expect(lineLengthM(line, byId)).toBeGreaterThan(straight)
+
+    line.segments[0].geometry = [
+      [nodes[0].lat, nodes[0].lng],
+      [nodes[0].lat + 0.05, nodes[0].lng],
+      [nodes[1].lat, nodes[1].lng],
+    ]
+    expect(lineLengthM(line, byId)).toBeGreaterThan(
+      straight + distanceBetween(nodes[0], other),
+    )
+  })
+
+  it('formats metres under 2 km and kilometres above', () => {
+    expect(formatLengthM(0)).toBe('0 m')
+    expect(formatLengthM(1999.4)).toBe('1999 m')
+    expect(formatLengthM(2000)).toBe('2.0 km')
+    expect(formatLengthM(12345)).toBe('12.3 km')
   })
 })
 
