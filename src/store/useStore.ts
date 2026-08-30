@@ -813,7 +813,8 @@ export const useStore = create<StoreState>((set, get) => {
         const group = activeProject(workspace)?.lines[lineId]?.groups.find(
           (item) => item.id === groupId,
         )
-        if (group && label.trim()) group.label = label.trim()
+        // Trimming here would swallow spaces as the label is typed.
+        if (group) group.label = label
       }),
 
     startConnecting: (lineId, groupId, at) =>

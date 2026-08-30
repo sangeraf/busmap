@@ -204,6 +204,18 @@ describe('workspace store', () => {
     expect(useStore.getState().editingNodeId).toBeNull()
   })
 
+  it('keeps spaces typed into a branch label', () => {
+    const store = useStore.getState()
+    const line = store.addLine({ name: '7' })
+    const groupId = line.groups[0].id
+
+    useStore.getState().renameBranch(line.id, groupId, 'Centre ')
+    expect(activeLine(line.id).groups[0].label).toBe('Centre ')
+
+    useStore.getState().renameBranch(line.id, groupId, 'Centre → Station')
+    expect(activeLine(line.id).groups[0].label).toBe('Centre → Station')
+  })
+
   it('chains clicked stops into directed segments', () => {
     const store = useStore.getState()
     const a = store.addNode('stop', 47.5, 19.0)

@@ -184,6 +184,7 @@ export function LineRow({ line, project }: Props) {
                       onChange={(event) =>
                         renameBranch(line.id, chain.groupId, event.target.value)
                       }
+                      placeholder="Branch name"
                       className="min-w-0 flex-1 rounded border border-transparent px-1 py-0.5 text-xs font-medium text-slate-700 hover:border-slate-300"
                     />
                   ) : (
