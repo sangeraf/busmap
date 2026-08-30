@@ -7,6 +7,7 @@ import {
   routeKey,
   routeUrl,
   setRouteCacheBackend,
+  withEndpoints,
 } from './routing'
 import type { LatLng } from '../types'
 
@@ -61,6 +62,15 @@ describe('routing', () => {
     const second = await routeBetween(A, B)
     expect(second.geometry).toEqual(first.geometry)
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('ties a snapped route back to the stops', () => {
+    const snapped: LatLng[] = [
+      [47.5001, 19.0002],
+      [47.51, 19.0201],
+    ]
+    expect(withEndpoints(snapped, A, B)).toEqual([A, ...snapped, B])
+    expect(withEndpoints([A, ...snapped, B], A, B)).toEqual([A, ...snapped, B])
   })
 
   it('reports a routing failure', async () => {

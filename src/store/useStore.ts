@@ -31,6 +31,7 @@ import {
   hydrateRouteCache,
   mapWithConcurrency,
   routeBetween,
+  withEndpoints,
 } from '../lib/routing'
 import {
   emptyWorkspace,
@@ -255,7 +256,11 @@ export const useStore = create<StoreState>((set, get) => {
             (item) => item.id === target.segmentId,
           )
           if (!segment || segment.mode !== 'road') return
-          segment.geometry = route.geometry
+          segment.geometry = withEndpoints(
+            route.geometry,
+            target.ends[0],
+            target.ends[1],
+          )
           segment.distanceM = route.distanceM
           segment.durationS = route.durationS
           segment.stale = false

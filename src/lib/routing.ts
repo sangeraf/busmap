@@ -36,6 +36,27 @@ export function routeKey(from: LatLng, to: LatLng): string {
   return `${round(from[0])},${round(from[1])};${round(to[0])},${round(to[1])}`
 }
 
+/**
+ * OSRM snaps the stops to the nearest street, so the route can start and end
+ * a few metres away from them. Straight stubs tie the drawn leg back to the
+ * stops themselves.
+ */
+export function withEndpoints(
+  geometry: LatLng[],
+  from: LatLng,
+  to: LatLng,
+): LatLng[] {
+  const same = (a: LatLng, b: LatLng) =>
+    Math.abs(a[0] - b[0]) < 1e-6 && Math.abs(a[1] - b[1]) < 1e-6
+  const first = geometry[0]
+  const last = geometry[geometry.length - 1]
+  return [
+    ...(first && same(first, from) ? [] : [from]),
+    ...geometry,
+    ...(last && same(last, to) ? [] : [to]),
+  ]
+}
+
 export function routeUrl(from: LatLng, to: LatLng): string {
   const coords = `${from[1]},${from[0]};${to[1]},${to[0]}`
   return `${OSRM_URL}/${coords}?overview=full&geometries=polyline6`
