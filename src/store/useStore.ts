@@ -15,6 +15,7 @@ import type {
   TypeId,
 } from '../types'
 import { createProject, duplicateProject } from '../lib/project'
+import { mergeProjects } from '../lib/exchange'
 import { createNode } from '../lib/nodes'
 import {
   applySegmentMode,
@@ -43,6 +44,9 @@ import {
 export type TabId = 'stops' | 'lines' | 'data'
 
 export type SaveState = 'idle' | 'saving' | 'saved'
+
+/** How an imported project lands: new entry, folded in, or overwriting. */
+export type ImportMode = 'new' | 'merge' | 'replace'
 
 /** Progress of the background OSRM requests. */
 export interface RoutingState {
@@ -130,6 +134,7 @@ interface StoreState {
   setLineMode: (lineId: LineId, mode: SegmentMode) => void
   routeStaleSegments: () => Promise<void>
   createNewProject: (name: string) => void
+  importProject: (project: Project, mode: ImportMode) => void
   switchProject: (id: ProjectId) => void
   renameProject: (id: ProjectId, name: string) => void
   duplicateActiveProject: () => void
@@ -616,6 +621,23 @@ export const useStore = create<StoreState>((set, get) => {
         if (routingRun === run) routingRun = null
       })
       return routingRun
+    },
+
+    importProject: (imported, mode) => {
+      const { workspace } = get()
+      const currentId = workspace.activeProjectId
+      const current = currentId ? workspace.projects[currentId] : undefined
+      const project =
+        mode === 'new' || !current
+          ? { ...imported, id: createId('prj') }
+          : mode === 'merge'
+            ? mergeProjects(current, imported)
+            : { ...imported, id: current.id }
+      commit((draft) => {
+        draft.projects[project.id] = project
+        draft.activeProjectId = project.id
+      })
+      void get().routeStaleSegments()
     },
 
     createNewProject: (name) => {
