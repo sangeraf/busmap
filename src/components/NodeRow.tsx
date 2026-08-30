@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ColorPicker } from './ColorPicker'
 import { NodeInfo } from './NodeInfo'
 import { useStore } from '../store/useStore'
 import type { LineId, MapNode, Project } from '../types'
@@ -96,15 +97,11 @@ export function NodeRow({ node, project, lineIds }: Props) {
             aria-label="Extra info"
             className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
           />
+          <ColorPicker
+            value={node.color}
+            onChange={(color) => updateNode(node.id, { color })}
+          />
           <div className="flex items-center gap-2 text-xs">
-            <input
-              type="color"
-              value={node.color}
-              onChange={(event) =>
-                updateNode(node.id, { color: event.target.value })
-              }
-              className="h-7 w-10 rounded border border-slate-300"
-            />
             <select
               value={node.kind}
               onChange={(event) =>

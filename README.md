@@ -74,6 +74,12 @@ info (a platform number, an entrance…): it is never inherited, and it is shown
 in grey next to the name in the list, the map tooltip and every line's stop
 order. Waypoints stay plain: grey, `Waypoint N`, no editor.
 
+### Colours
+
+Stops and lines are coloured from the same picker: the colours picked lately
+(kept across reloads, outside project data), a fixed palette, and the browser's
+own RGB picker for anything else.
+
 ## Keyboard shortcuts
 
 `S`/`W` place a stop/waypoint, `1`/`2`/`3` switch tabs, `Ctrl+Z` /

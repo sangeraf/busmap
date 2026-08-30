@@ -94,6 +94,30 @@ export const indexedDbRouteCache: RouteCacheBackend = {
   },
 }
 
+const RECENT_COLORS_KEY = 'busmap.recentColors'
+
+/** Recently picked colours are a workspace-wide preference, not project data. */
+export const recentColorsStorage = {
+  async load(): Promise<string[]> {
+    try {
+      const stored = await idbGet<string[]>(RECENT_COLORS_KEY)
+      return Array.isArray(stored)
+        ? stored.filter((entry) => typeof entry === 'string')
+        : []
+    } catch (error) {
+      console.error('Failed to read recent colours', error)
+      return []
+    }
+  },
+  async save(colors: string[]): Promise<void> {
+    try {
+      await idbSet(RECENT_COLORS_KEY, colors)
+    } catch (error) {
+      console.error('Failed to persist recent colours', error)
+    }
+  },
+}
+
 export function emptyWorkspace(): Workspace {
   return { schemaVersion: SCHEMA_VERSION, activeProjectId: null, projects: {} }
 }

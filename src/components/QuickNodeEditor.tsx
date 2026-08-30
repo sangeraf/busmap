@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store/useStore'
 import type { MapNode } from '../types'
+import { ColorPicker } from './ColorPicker'
 
 /**
  * Opens right after a node is placed: the name is focused and preselected, the
@@ -56,22 +57,13 @@ export function QuickNodeEditor({ node }: { node: MapNode }) {
             {node.lat.toFixed(5)}, {node.lng.toFixed(5)}
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <input
-            ref={inputRef}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm"
-            aria-label="Name"
-          />
-          <input
-            type="color"
-            value={color}
-            onChange={(event) => setColor(event.target.value)}
-            className="h-8 w-10 shrink-0 rounded border border-slate-300"
-            aria-label="Colour"
-          />
-        </div>
+        <input
+          ref={inputRef}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+          aria-label="Name"
+        />
         <input
           value={info}
           onChange={(event) => setInfo(event.target.value)}
@@ -79,6 +71,9 @@ export function QuickNodeEditor({ node }: { node: MapNode }) {
           className="mt-2 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
           aria-label="Extra info"
         />
+        <div className="mt-2">
+          <ColorPicker value={color} onChange={setColor} />
+        </div>
         <div className="mt-2 flex items-center gap-2 text-xs">
           <button
             type="submit"

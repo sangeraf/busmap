@@ -46,9 +46,11 @@ import {
 import {
   emptyWorkspace,
   indexedDbBackend,
+  recentColorsStorage,
   type Workspace,
   type WorkspaceStorage,
 } from './storage'
+import { withRecentColor } from '../lib/palette'
 
 export type TabId = 'stops' | 'lines' | 'data'
 
@@ -105,6 +107,8 @@ interface StoreState {
   namingNodeId: NodeId | null
   /** Colour given to the next stop; waypoints stay grey. */
   lastStopColor: string
+  /** Colours picked lately, offered as swatches. Most recent first. */
+  recentColors: string[]
   /** Mode used for connections created from now on. */
   defaultSegmentMode: SegmentMode
   routing: RoutingState
@@ -122,6 +126,7 @@ interface StoreState {
   setSelectedNode: (id: NodeId | null) => void
   setHoveredNode: (id: NodeId | null) => void
   setNamingNode: (id: NodeId | null) => void
+  rememberColor: (color: string) => void
   addNode: (kind: NodeKind, lat: number, lng: number) => MapNode
   updateNode: (id: NodeId, patch: Partial<Omit<MapNode, 'id'>>) => void
   deleteNode: (id: NodeId) => void
@@ -402,6 +407,7 @@ export const useStore = create<StoreState>((set, get) => {
     connect: null,
     namingNodeId: null,
     lastStopColor: STOP_COLOR,
+    recentColors: [],
     defaultSegmentMode: 'straight',
     routing: { pending: 0, failed: 0, error: null },
     history: { past: 0, future: 0 },
@@ -416,7 +422,11 @@ export const useStore = create<StoreState>((set, get) => {
     hydrate: async () => {
       if (get().hydrated) return
       await hydrateRouteCache()
-      const loaded = await storage.load()
+      const [loaded, recentColors] = await Promise.all([
+        storage.load(),
+        recentColorsStorage.load(),
+      ])
+      set({ recentColors })
       past = []
       future = []
       set({
@@ -435,6 +445,13 @@ export const useStore = create<StoreState>((set, get) => {
         }))
       }
       void get().routeStaleSegments()
+    },
+
+    rememberColor: (color) => {
+      const recentColors = withRecentColor(get().recentColors, color)
+      if (recentColors === get().recentColors) return
+      set({ recentColors })
+      void recentColorsStorage.save(recentColors)
     },
 
     undo: () => {
