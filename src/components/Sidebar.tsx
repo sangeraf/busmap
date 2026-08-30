@@ -32,7 +32,7 @@ export function Sidebar({ project }: { project: Project }) {
           </button>
         ))}
       </nav>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {activeTab === 'stops' && <StopsTab project={project} />}
         {activeTab === 'lines' && <LinesTab project={project} />}
         {activeTab === 'data' && <DataTab project={project} />}
