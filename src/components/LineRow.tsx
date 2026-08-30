@@ -1,6 +1,11 @@
 import { useState } from 'react'
 import { useStore } from '../store/useStore'
-import { lineChains, lineStopIds } from '../lib/lines'
+import {
+  formatLengthM,
+  lineChains,
+  lineLengthM,
+  lineStopIds,
+} from '../lib/lines'
 import { ColorPicker } from './ColorPicker'
 import { LineTypeSelect } from './LineTypeSelect'
 import { NodeInfo } from './NodeInfo'
@@ -45,6 +50,7 @@ export function LineRow({ line, project }: Props) {
   const type = line.typeId ? project.lineTypes[line.typeId] : undefined
   const chains = lineChains(line)
   const stopCount = lineStopIds(line).length
+  const length = lineLengthM(line, project.nodes)
 
   return (
     <div
@@ -73,7 +79,7 @@ export function LineRow({ line, project }: Props) {
           )}
         </button>
         <span className="shrink-0 text-[11px] text-slate-400">
-          {stopCount} stops
+          {stopCount} stops · {formatLengthM(length)}
         </span>
         <button
           type="button"

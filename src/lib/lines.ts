@@ -1,7 +1,9 @@
 import Fuse from 'fuse.js'
 import { createId } from './id'
+import { distanceM } from './nodes'
 import type {
   GroupId,
+  LatLng,
   Line,
   LineGroup,
   LineType,
@@ -280,6 +282,44 @@ export function lineStopIds(line: Line): NodeId[] {
     }
   }
   return ordered
+}
+
+/** Length of one connection: its drawn geometry, straight otherwise. */
+function segmentLengthM(
+  segment: Segment,
+  nodes: Record<NodeId, MapNode>,
+): number {
+  const from = nodes[segment.from]
+  const to = nodes[segment.to]
+  const straight: LatLng[] =
+    from && to
+      ? [
+          [from.lat, from.lng],
+          [to.lat, to.lng],
+        ]
+      : []
+  const points = segment.geometry.length > 1 ? segment.geometry : straight
+  let total = 0
+  for (let index = 1; index < points.length; index += 1) {
+    total += distanceM(points[index - 1], points[index])
+  }
+  return total
+}
+
+/** Total length of every connection of a line, across all branches. */
+export function lineLengthM(
+  line: Line,
+  nodes: Record<NodeId, MapNode>,
+): number {
+  return line.segments.reduce(
+    (total, segment) => total + segmentLengthM(segment, nodes),
+    0,
+  )
+}
+
+export function formatLengthM(meters: number): string {
+  if (meters < 2000) return `${Math.round(meters)} m`
+  return `${(meters / 1000).toFixed(1)} km`
 }
 
 /** nodeId -> lines serving it, for the Stops tab and node deletion. */
