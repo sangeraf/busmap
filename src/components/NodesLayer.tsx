@@ -69,6 +69,9 @@ export function NodesLayer({ project }: { project: Project }) {
             key={node.id}
             center={[node.lat, node.lng]}
             radius={node.kind === 'stop' ? 6 : 4}
+            // Otherwise the map's click handler also fires and treats a
+            // clicked node as empty ground.
+            bubblingMouseEvents={false}
             pathOptions={{
               color: isAnchor
                 ? '#16a34a'

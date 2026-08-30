@@ -12,7 +12,9 @@ interface Props {
 
 function MapEvents({ onViewChange }: { onViewChange: Props['onViewChange'] }) {
   const placementKind = useStore((s) => s.placementKind)
+  const connecting = useStore((s) => s.connect !== null)
   const addNode = useStore((s) => s.addNode)
+  const connectAt = useStore((s) => s.connectAt)
 
   useMapEvents({
     moveend(event) {
@@ -21,6 +23,11 @@ function MapEvents({ onViewChange }: { onViewChange: Props['onViewChange'] }) {
       onViewChange([center.lat, center.lng], map.getZoom())
     },
     click(event) {
+      if (connecting) {
+        // Clicking past the stops threads a fresh waypoint into the branch.
+        connectAt(event.latlng.lat, event.latlng.lng)
+        return
+      }
       if (!placementKind) return
       // Placement stays armed so a row of stops can be clicked out in one go.
       addNode(placementKind, event.latlng.lat, event.latlng.lng)
