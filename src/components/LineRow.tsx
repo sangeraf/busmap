@@ -305,7 +305,8 @@ export function LineRow({ line, project }: Props) {
                                 }
                                 className={
                                   incoming.mode === 'road'
-                                    ? incoming.stale
+                                    ? incoming.stale ||
+                                      incoming.distanceM === undefined
                                       ? 'text-amber-500'
                                       : 'text-emerald-600'
                                     : 'hover:text-slate-900'
