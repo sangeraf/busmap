@@ -141,7 +141,7 @@ export function filterNodes(
 
 export function createNodeFuse(nodes: MapNode[]): Fuse<MapNode> {
   return new Fuse(nodes, {
-    keys: ['name'],
+    keys: ['name', 'info'],
     threshold: 0.35,
     ignoreLocation: true,
   })

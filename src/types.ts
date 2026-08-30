@@ -14,6 +14,8 @@ export interface MapNode {
   id: NodeId
   kind: NodeKind
   name: string
+  /** Free-form detail such as a platform number, shown next to the name. */
+  info?: string
   color: string
   lat: number
   lng: number

@@ -160,6 +160,15 @@ describe('workspace store', () => {
     expect(far.color).toBe('#ff0000')
   })
 
+  it('never inherits the extra info of a neighbour', () => {
+    const first = useStore.getState().addNode('stop', 47.5, 19.0)
+    useStore.getState().updateNode(first.id, { name: 'Astoria', info: '2' })
+
+    const near = useStore.getState().addNode('stop', 47.50027, 19.0)
+    expect(near.name).toBe('Astoria')
+    expect(near.info).toBeUndefined()
+  })
+
   it('keeps waypoints plain and skips their quick editor', () => {
     const stop = useStore.getState().addNode('stop', 47.5, 19.0)
     useStore.getState().updateNode(stop.id, {

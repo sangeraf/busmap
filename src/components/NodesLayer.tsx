@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import L from 'leaflet'
 import { CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
+import { NodeInfo } from './NodeInfo'
 import { useStore } from '../store/useStore'
 import type { MapNode, Project } from '../types'
 
@@ -87,6 +88,7 @@ export function NodesLayer({ project }: { project: Project }) {
           >
             <Tooltip direction="top" offset={[0, -6]}>
               {node.name}
+              <NodeInfo info={node.info} />
             </Tooltip>
           </CircleMarker>
         )

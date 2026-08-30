@@ -12,6 +12,7 @@ export function QuickNodeEditor({ node }: { node: MapNode }) {
   const deleteNode = useStore((s) => s.deleteNode)
   const setNamingNode = useStore((s) => s.setNamingNode)
   const [name, setName] = useState(node.name)
+  const [info, setInfo] = useState(node.info ?? '')
   const [color, setColor] = useState(node.color)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -21,7 +22,11 @@ export function QuickNodeEditor({ node }: { node: MapNode }) {
 
   function persist() {
     const trimmed = name.trim()
-    updateNode(node.id, { name: trimmed || node.name, color })
+    updateNode(node.id, {
+      name: trimmed || node.name,
+      info: info.trim() || undefined,
+      color,
+    })
   }
 
   function save() {
@@ -67,6 +72,13 @@ export function QuickNodeEditor({ node }: { node: MapNode }) {
             aria-label="Colour"
           />
         </div>
+        <input
+          value={info}
+          onChange={(event) => setInfo(event.target.value)}
+          placeholder="Platform, entrance…"
+          className="mt-2 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+          aria-label="Extra info"
+        />
         <div className="mt-2 flex items-center gap-2 text-xs">
           <button
             type="submit"

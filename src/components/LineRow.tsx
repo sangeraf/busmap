@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../store/useStore'
 import { lineChains, lineStopIds } from '../lib/lines'
 import { LineTypeSelect } from './LineTypeSelect'
+import { NodeInfo } from './NodeInfo'
 import type { Line, Project, Segment } from '../types'
 
 /** Tooltip of the straight/road toggle, with the routed length if known. */
@@ -288,6 +289,7 @@ export function LineRow({ line, project }: Props) {
                             }`}
                           >
                             {node?.name ?? 'Missing stop'}
+                            <NodeInfo info={node?.info} />
                           </button>
                           <span className="flex shrink-0 items-center gap-1 text-slate-400">
                             {incoming ? (
