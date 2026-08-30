@@ -49,6 +49,8 @@ export function NodesLayer({ project }: { project: Project }) {
   const setSelectedNode = useStore((s) => s.setSelectedNode)
   const setHoveredNode = useStore((s) => s.setHoveredNode)
   const updateNode = useStore((s) => s.updateNode)
+  const connect = useStore((s) => s.connect)
+  const connectTo = useStore((s) => s.connectTo)
 
   const nodes = useMemo(() => Object.values(project.nodes), [project.nodes])
   const visible = useVisibleNodes(nodes)
@@ -60,19 +62,25 @@ export function NodesLayer({ project }: { project: Project }) {
       {visible.map((node) => {
         const isSelected = node.id === selectedNodeId
         const isHovered = node.id === hoveredNodeId
+        const isAnchor = connect?.anchorId === node.id
         return (
           <CircleMarker
             key={node.id}
             center={[node.lat, node.lng]}
             radius={node.kind === 'stop' ? 6 : 4}
             pathOptions={{
-              color: isSelected || isHovered ? '#0f172a' : '#ffffff',
-              weight: isSelected || isHovered ? 3 : 2,
+              color: isAnchor
+                ? '#16a34a'
+                : isSelected || isHovered
+                  ? '#0f172a'
+                  : '#ffffff',
+              weight: isAnchor || isSelected || isHovered ? 3 : 2,
               fillColor: node.color,
               fillOpacity: 1,
             }}
             eventHandlers={{
-              click: () => setSelectedNode(node.id),
+              click: () =>
+                connect ? connectTo(node.id) : setSelectedNode(node.id),
               mouseover: () => setHoveredNode(node.id),
               mouseout: () => setHoveredNode(null),
             }}
@@ -88,7 +96,7 @@ export function NodesLayer({ project }: { project: Project }) {
         Canvas circle markers cannot be dragged, so the selected node also gets
         a draggable DOM marker on top of it.
       */}
-      {selectedNodeId && selectedNode && (
+      {selectedNodeId && selectedNode && !connect && (
         <Marker
           key={`drag-${selectedNodeId}`}
           position={[selectedNode.lat, selectedNode.lng]}
