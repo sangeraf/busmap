@@ -15,7 +15,12 @@ import type {
 } from '../types'
 import { createProject, duplicateProject } from '../lib/project'
 import { createNode } from '../lib/nodes'
-import { createLine, createLineType, createSegment } from '../lib/lines'
+import {
+  createLine,
+  createLineType,
+  createSegment,
+  reorderSegment,
+} from '../lib/lines'
 import { createId } from '../lib/id'
 import {
   emptyWorkspace,
@@ -347,24 +352,14 @@ export const useStore = create<StoreState>((set, get) => {
         )
       }),
 
-    /** Reorder a segment within its own branch. */
+    /** Reorder a segment within its own chain, keeping the chain connected. */
     moveSegment: (lineId, segmentId, delta) =>
       commit((workspace) => {
-        const line = activeProject(workspace)?.lines[lineId]
-        if (!line) return
-        const segment = line.segments.find((item) => item.id === segmentId)
-        if (!segment) return
-        const siblings = line.segments.filter(
-          (item) => item.groupId === segment.groupId,
-        )
-        const at = siblings.indexOf(segment)
-        const target = at + delta
-        if (target < 0 || target >= siblings.length) return
-        const swap = siblings[target]
-        const a = line.segments.indexOf(segment)
-        const b = line.segments.indexOf(swap)
-        line.segments[a] = swap
-        line.segments[b] = segment
+        const project = activeProject(workspace)
+        const line = project?.lines[lineId]
+        if (!project || !line) return
+        reorderSegment(line, segmentId, delta, project.nodes)
+        project.updatedAt = new Date().toISOString()
       }),
 
     createNewProject: (name) => {

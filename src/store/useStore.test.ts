@@ -130,7 +130,15 @@ describe('workspace store', () => {
 
     const [first, second] = activeLine(line.id).segments
     useStore.getState().moveSegment(line.id, second.id, -1)
-    expect(activeLine(line.id).segments[0].id).toBe(second.id)
+    const moved = activeLine(line.id).segments
+    expect(moved.map((segment) => [segment.from, segment.to])).toEqual([
+      [nodes[0].id, nodes[2].id],
+      [nodes[2].id, nodes[1].id],
+    ])
+    expect(moved[0].geometry).toEqual([
+      [nodes[0].lat, nodes[0].lng],
+      [nodes[2].lat, nodes[2].lng],
+    ])
 
     useStore.getState().removeSegment(line.id, first.id)
     expect(activeLine(line.id).segments).toHaveLength(1)

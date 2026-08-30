@@ -9,6 +9,7 @@ import type {
   NodeId,
   Project,
   Segment,
+  SegmentId,
   SegmentMode,
 } from '../types'
 
@@ -100,6 +101,59 @@ export function lineChains(line: Line): Chain[] {
     }
   }
   return chains
+}
+
+/**
+ * Move a connection earlier/later inside its own chain. The chain is
+ * re-stitched afterwards (`from` follows the previous segment's `to`), so the
+ * stop sequence is reordered and the branch never falls apart into a detached
+ * part.
+ */
+export function reorderSegment(
+  line: Line,
+  segmentId: SegmentId,
+  delta: number,
+  nodes: Record<NodeId, MapNode>,
+): void {
+  const chain = lineChains(line).find((item) =>
+    item.segments.some((segment) => segment.id === segmentId),
+  )
+  if (!chain) return
+
+  const at = chain.segments.findIndex((segment) => segment.id === segmentId)
+  const target = at + delta
+  if (target < 0 || target >= chain.segments.length) return
+
+  const positions = chain.segments.map((segment) =>
+    line.segments.indexOf(segment),
+  )
+  const ordered = [...chain.segments]
+  const [moved] = ordered.splice(at, 1)
+  ordered.splice(target, 0, moved)
+
+  let cursor = chain.nodeIds[0]
+  ordered.forEach((segment, index) => {
+    if (segment.from !== cursor) {
+      segment.from = cursor
+      restitchGeometry(segment, nodes)
+    }
+    cursor = segment.to
+    line.segments[positions[index]] = segment
+  })
+}
+
+function restitchGeometry(segment: Segment, nodes: Record<NodeId, MapNode>) {
+  if (segment.mode === 'road') {
+    segment.stale = true
+    return
+  }
+  const from = nodes[segment.from]
+  const to = nodes[segment.to]
+  if (!from || !to) return
+  segment.geometry = [
+    [from.lat, from.lng],
+    [to.lat, to.lng],
+  ]
 }
 
 /** Distinct stops served by a line, in the order they first appear. */

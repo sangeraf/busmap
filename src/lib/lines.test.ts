@@ -8,6 +8,7 @@ import {
   filterLines,
   lineChains,
   lineStopIds,
+  reorderSegment,
 } from './lines'
 import type { Line, MapNode } from '../types'
 
@@ -75,6 +76,62 @@ describe('lineChains', () => {
     line.segments.push(createSegment(nodes[1], nodes[0], 'grp-back'))
 
     expect(lineStopIds(line)).toHaveLength(3)
+  })
+})
+
+describe('reorderSegment', () => {
+  function nodeMap(nodes: MapNode[]): Record<string, MapNode> {
+    return Object.fromEntries(nodes.map((node) => [node.id, node]))
+  }
+
+  it('reorders the stop sequence without breaking the chain', () => {
+    const nodes = stops(4)
+    const line = createLine({ name: '7' })
+    chained(line, nodes, line.groups[0].id)
+
+    reorderSegment(line, line.segments[2].id, -1, nodeMap(nodes))
+
+    const chains = lineChains(line)
+    expect(chains).toHaveLength(1)
+    expect(chains[0].nodeIds).toEqual([
+      nodes[0].id,
+      nodes[1].id,
+      nodes[3].id,
+      nodes[2].id,
+    ])
+    expect(line.segments[1].geometry).toEqual([
+      [nodes[1].lat, nodes[1].lng],
+      [nodes[3].lat, nodes[3].lng],
+    ])
+  })
+
+  it('stays inside its own chain and clamps at the ends', () => {
+    const nodes = stops(5)
+    const line = createLine({ name: '7' })
+    const groupId = line.groups[0].id
+    chained(line, nodes.slice(0, 3), groupId)
+    line.segments.push(createSegment(nodes[3], nodes[4], groupId))
+    const detached = line.segments[2]
+
+    reorderSegment(line, detached.id, -1, nodeMap(nodes))
+    reorderSegment(line, line.segments[0].id, -1, nodeMap(nodes))
+
+    expect(lineChains(line).map((chain) => chain.nodeIds)).toEqual([
+      [nodes[0].id, nodes[1].id, nodes[2].id],
+      [nodes[3].id, nodes[4].id],
+    ])
+  })
+
+  it('marks a re-stitched road segment stale', () => {
+    const nodes = stops(3)
+    const line = createLine({ name: '7' })
+    const groupId = line.groups[0].id
+    line.segments.push(createSegment(nodes[0], nodes[1], groupId))
+    line.segments.push(createSegment(nodes[1], nodes[2], groupId, 'road'))
+
+    reorderSegment(line, line.segments[1].id, -1, nodeMap(nodes))
+
+    expect(line.segments[0].stale).toBe(true)
   })
 })
 
