@@ -1,15 +1,22 @@
 import { create } from 'zustand'
 import { produce } from 'immer'
 import type {
+  GroupId,
   LatLng,
+  Line,
+  LineId,
   MapNode,
   NodeId,
   NodeKind,
   Project,
   ProjectId,
+  SegmentId,
+  TypeId,
 } from '../types'
 import { createProject, duplicateProject } from '../lib/project'
 import { createNode } from '../lib/nodes'
+import { createLine, createLineType, createSegment } from '../lib/lines'
+import { createId } from '../lib/id'
 import {
   emptyWorkspace,
   indexedDbBackend,
@@ -21,6 +28,13 @@ export type TabId = 'stops' | 'lines' | 'data'
 
 export type SaveState = 'idle' | 'saving' | 'saved'
 
+/** Active "click stops on the map to chain them" session. */
+export interface ConnectState {
+  lineId: LineId
+  groupId: GroupId
+  anchorId: NodeId | null
+}
+
 interface StoreState {
   workspace: Workspace
   hydrated: boolean
@@ -29,6 +43,8 @@ interface StoreState {
   placementKind: NodeKind | null
   selectedNodeId: NodeId | null
   hoveredNodeId: NodeId | null
+  selectedLineId: LineId | null
+  connect: ConnectState | null
   hydrate: () => Promise<void>
   setActiveTab: (tab: TabId) => void
   setPlacementKind: (kind: NodeKind | null) => void
@@ -37,6 +53,25 @@ interface StoreState {
   addNode: (kind: NodeKind, lat: number, lng: number) => MapNode
   updateNode: (id: NodeId, patch: Partial<Omit<MapNode, 'id'>>) => void
   deleteNode: (id: NodeId) => void
+  setSelectedLine: (id: LineId | null) => void
+  addLine: (input: {
+    name: string
+    description?: string
+    color?: string
+    typeId?: TypeId | null
+  }) => Line
+  updateLine: (id: LineId, patch: Partial<Omit<Line, 'id' | 'segments'>>) => void
+  deleteLine: (id: LineId) => void
+  addLineType: (name: string) => TypeId | null
+  renameLineType: (id: TypeId, name: string) => void
+  deleteLineType: (id: TypeId) => void
+  addBranch: (lineId: LineId) => void
+  renameBranch: (lineId: LineId, groupId: GroupId, label: string) => void
+  startConnecting: (lineId: LineId, groupId: GroupId) => void
+  stopConnecting: () => void
+  connectTo: (nodeId: NodeId) => void
+  removeSegment: (lineId: LineId, segmentId: SegmentId) => void
+  moveSegment: (lineId: LineId, segmentId: SegmentId, delta: number) => void
   createNewProject: (name: string) => void
   switchProject: (id: ProjectId) => void
   renameProject: (id: ProjectId, name: string) => void
@@ -70,6 +105,11 @@ function withFallbackProject(workspace: Workspace): Workspace {
   return { ...workspace, activeProjectId: activeId }
 }
 
+function activeProject(workspace: Workspace): Project | undefined {
+  const id = workspace.activeProjectId
+  return id ? workspace.projects[id] : undefined
+}
+
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 
 export const useStore = create<StoreState>((set, get) => {
@@ -95,6 +135,8 @@ export const useStore = create<StoreState>((set, get) => {
     placementKind: null,
     selectedNodeId: null,
     hoveredNodeId: null,
+    selectedLineId: null,
+    connect: null,
 
     hydrate: async () => {
       if (get().hydrated) return
@@ -107,7 +149,8 @@ export const useStore = create<StoreState>((set, get) => {
 
     setActiveTab: (tab) => set({ activeTab: tab }),
 
-    setPlacementKind: (kind) => set({ placementKind: kind }),
+    setPlacementKind: (kind) =>
+      set({ placementKind: kind, connect: kind ? null : get().connect }),
 
     setSelectedNode: (id) => set({ selectedNodeId: id }),
 
@@ -176,7 +219,153 @@ export const useStore = create<StoreState>((set, get) => {
         project.updatedAt = new Date().toISOString()
       })
       if (get().selectedNodeId === id) set({ selectedNodeId: null })
+      const { connect } = get()
+      if (connect?.anchorId === id) set({ connect: { ...connect, anchorId: null } })
     },
+
+    setSelectedLine: (id) => set({ selectedLineId: id }),
+
+    addLine: (input) => {
+      const line = createLine(input)
+      commit((workspace) => {
+        const project = activeProject(workspace)
+        if (!project) return
+        project.lines[line.id] = line
+        project.updatedAt = new Date().toISOString()
+      })
+      set({ selectedLineId: line.id })
+      return line
+    },
+
+    updateLine: (id, patch) =>
+      commit((workspace) => {
+        const line = activeProject(workspace)?.lines[id]
+        if (line) Object.assign(line, patch)
+      }),
+
+    deleteLine: (id) => {
+      commit((workspace) => {
+        const project = activeProject(workspace)
+        if (project) delete project.lines[id]
+      })
+      set((state) => ({
+        selectedLineId: state.selectedLineId === id ? null : state.selectedLineId,
+        connect: state.connect?.lineId === id ? null : state.connect,
+      }))
+    },
+
+    addLineType: (name) => {
+      const trimmed = name.trim()
+      if (!trimmed) return null
+      const project = activeProject(get().workspace)
+      const existing = project
+        ? Object.values(project.lineTypes).find(
+            (type) => type.name.toLowerCase() === trimmed.toLowerCase(),
+          )
+        : undefined
+      if (existing) return existing.id
+      const type = createLineType(trimmed)
+      commit((workspace) => {
+        const target = activeProject(workspace)
+        if (target) target.lineTypes[type.id] = type
+      })
+      return type.id
+    },
+
+    renameLineType: (id, name) =>
+      commit((workspace) => {
+        const type = activeProject(workspace)?.lineTypes[id]
+        if (type && name.trim()) type.name = name.trim()
+      }),
+
+    deleteLineType: (id) =>
+      commit((workspace) => {
+        const project = activeProject(workspace)
+        if (!project) return
+        delete project.lineTypes[id]
+        for (const line of Object.values(project.lines)) {
+          if (line.typeId === id) line.typeId = null
+        }
+      }),
+
+    addBranch: (lineId) =>
+      commit((workspace) => {
+        const line = activeProject(workspace)?.lines[lineId]
+        if (!line) return
+        line.groups.push({
+          id: createId('grp'),
+          label: `Branch ${line.groups.length + 1}`,
+        })
+      }),
+
+    renameBranch: (lineId, groupId, label) =>
+      commit((workspace) => {
+        const group = activeProject(workspace)
+          ?.lines[lineId]?.groups.find((item) => item.id === groupId)
+        if (group && label.trim()) group.label = label.trim()
+      }),
+
+    startConnecting: (lineId, groupId) =>
+      set({
+        connect: { lineId, groupId, anchorId: null },
+        placementKind: null,
+        selectedLineId: lineId,
+      }),
+
+    stopConnecting: () => set({ connect: null }),
+
+    /**
+     * Chains clicked nodes: the first click only anchors, every later click
+     * appends a directed segment from the previous node.
+     */
+    connectTo: (nodeId) => {
+      const { connect } = get()
+      if (!connect) return
+      const anchorId = connect.anchorId
+      if (!anchorId || anchorId === nodeId) {
+        set({ connect: { ...connect, anchorId: nodeId } })
+        return
+      }
+      commit((workspace) => {
+        const project = activeProject(workspace)
+        const line = project?.lines[connect.lineId]
+        const from = project?.nodes[anchorId]
+        const to = project?.nodes[nodeId]
+        if (!project || !line || !from || !to) return
+        line.segments.push(createSegment(from, to, connect.groupId))
+        project.updatedAt = new Date().toISOString()
+      })
+      set({ connect: { ...connect, anchorId: nodeId } })
+    },
+
+    removeSegment: (lineId, segmentId) =>
+      commit((workspace) => {
+        const line = activeProject(workspace)?.lines[lineId]
+        if (!line) return
+        line.segments = line.segments.filter(
+          (segment) => segment.id !== segmentId,
+        )
+      }),
+
+    /** Reorder a segment within its own branch. */
+    moveSegment: (lineId, segmentId, delta) =>
+      commit((workspace) => {
+        const line = activeProject(workspace)?.lines[lineId]
+        if (!line) return
+        const segment = line.segments.find((item) => item.id === segmentId)
+        if (!segment) return
+        const siblings = line.segments.filter(
+          (item) => item.groupId === segment.groupId,
+        )
+        const at = siblings.indexOf(segment)
+        const target = at + delta
+        if (target < 0 || target >= siblings.length) return
+        const swap = siblings[target]
+        const a = line.segments.indexOf(segment)
+        const b = line.segments.indexOf(swap)
+        line.segments[a] = swap
+        line.segments[b] = segment
+      }),
 
     createNewProject: (name) => {
       const project = createProject(name)

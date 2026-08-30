@@ -1,19 +1,23 @@
 import { useState } from 'react'
 import { useStore } from '../store/useStore'
-import type { MapNode } from '../types'
+import type { LineId, MapNode, Project } from '../types'
 
 interface Props {
   node: MapNode
-  lineCount: number
+  project: Project
+  lineIds: LineId[]
 }
 
-export function NodeRow({ node, lineCount }: Props) {
+export function NodeRow({ node, project, lineIds }: Props) {
   const selected = useStore((s) => s.selectedNodeId === node.id)
   const setSelectedNode = useStore((s) => s.setSelectedNode)
   const setHoveredNode = useStore((s) => s.setHoveredNode)
   const updateNode = useStore((s) => s.updateNode)
   const deleteNode = useStore((s) => s.deleteNode)
+  const setActiveTab = useStore((s) => s.setActiveTab)
+  const setSelectedLine = useStore((s) => s.setSelectedLine)
   const [editing, setEditing] = useState(false)
+  const lineCount = lineIds.length
 
   return (
     <div
@@ -49,6 +53,28 @@ export function NodeRow({ node, lineCount }: Props) {
 
       {editing && (
         <div className="mt-2 space-y-2">
+          {lineCount > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {lineIds.map((lineId) => {
+                const line = project.lines[lineId]
+                if (!line) return null
+                return (
+                  <button
+                    key={lineId}
+                    type="button"
+                    onClick={() => {
+                      setSelectedLine(lineId)
+                      setActiveTab('lines')
+                    }}
+                    className="rounded px-1.5 py-0.5 text-[10px] text-white"
+                    style={{ backgroundColor: line.color }}
+                  >
+                    {line.name}
+                  </button>
+                )
+              })}
+            </div>
+          )}
           <input
             value={node.name}
             onChange={(event) => updateNode(node.id, { name: event.target.value })}

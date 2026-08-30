@@ -3,6 +3,7 @@ import 'leaflet/dist/leaflet.css'
 import { useStore } from '../store/useStore'
 import type { LatLng, Project } from '../types'
 import { NodesLayer } from './NodesLayer'
+import { LinesLayer } from './LinesLayer'
 
 interface Props {
   project: Project
@@ -31,12 +32,15 @@ function MapEvents({ onViewChange }: { onViewChange: Props['onViewChange'] }) {
 
 export function MapView({ project, onViewChange }: Props) {
   const placementKind = useStore((s) => s.placementKind)
+  const connect = useStore((s) => s.connect)
 
   return (
     <MapContainer
       center={project.center}
       zoom={project.zoom}
-      className={`h-full w-full ${placementKind ? 'cursor-crosshair' : ''}`}
+      className={`h-full w-full ${
+        placementKind || connect ? 'cursor-crosshair' : ''
+      }`}
       scrollWheelZoom
       preferCanvas
     >
@@ -46,6 +50,7 @@ export function MapView({ project, onViewChange }: Props) {
         maxZoom={19}
       />
       <MapEvents onViewChange={onViewChange} />
+      <LinesLayer project={project} />
       <NodesLayer project={project} />
     </MapContainer>
   )

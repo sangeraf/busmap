@@ -123,7 +123,8 @@ export function StopsTab({ project }: { project: Project }) {
             <NodeRow
               key={node.id}
               node={node}
-              lineCount={lineIndex.get(node.id)?.length ?? 0}
+              project={project}
+              lineIds={lineIndex.get(node.id) ?? []}
             />
           ))}
         </VList>

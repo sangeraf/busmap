@@ -14,10 +14,25 @@ function memoryBackend(): WorkspaceStorage & { current: Workspace | null } {
   }
 }
 
+function activeProjectState() {
+  const { workspace } = useStore.getState()
+  return workspace.projects[workspace.activeProjectId!]
+}
+
+function activeLine(id: string) {
+  return activeProjectState().lines[id]
+}
+
 describe('workspace store', () => {
   beforeEach(async () => {
     setStorageBackend(memoryBackend())
-    useStore.setState({ workspace: emptyWorkspace(), hydrated: false })
+    useStore.setState({
+      workspace: emptyWorkspace(),
+      hydrated: false,
+      connect: null,
+      selectedNodeId: null,
+      selectedLineId: null,
+    })
     await useStore.getState().hydrate()
   })
 
@@ -76,6 +91,72 @@ describe('workspace store', () => {
     expect(first.name).toBe('Stop 1')
     expect(second.name).toBe('Stop 2')
     expect(waypoint.name).toBe('Waypoint 1')
+  })
+
+  it('chains clicked stops into directed segments', () => {
+    const store = useStore.getState()
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.51, 19.01)
+    const c = store.addNode('stop', 47.52, 19.02)
+    const line = store.addLine({ name: '7' })
+
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectTo(a.id)
+    expect(activeLine(line.id).segments).toHaveLength(0)
+
+    useStore.getState().connectTo(b.id)
+    useStore.getState().connectTo(c.id)
+    const segments = activeLine(line.id).segments
+    expect(segments.map((segment) => [segment.from, segment.to])).toEqual([
+      [a.id, b.id],
+      [b.id, c.id],
+    ])
+    expect(segments[0].geometry).toEqual([
+      [a.lat, a.lng],
+      [b.lat, b.lng],
+    ])
+  })
+
+  it('reorders and removes connections', () => {
+    const store = useStore.getState()
+    const nodes = [
+      store.addNode('stop', 47.5, 19.0),
+      store.addNode('stop', 47.51, 19.01),
+      store.addNode('stop', 47.52, 19.02),
+    ]
+    const line = store.addLine({ name: '7' })
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    for (const node of nodes) useStore.getState().connectTo(node.id)
+
+    const [first, second] = activeLine(line.id).segments
+    useStore.getState().moveSegment(line.id, second.id, -1)
+    expect(activeLine(line.id).segments[0].id).toBe(second.id)
+
+    useStore.getState().removeSegment(line.id, first.id)
+    expect(activeLine(line.id).segments).toHaveLength(1)
+  })
+
+  it('deletes only project-scoped line types and untags their lines', () => {
+    const typeId = useStore.getState().addLineType('villamos')!
+    expect(useStore.getState().addLineType(' Villamos ')).toBe(typeId)
+
+    const line = useStore.getState().addLine({ name: '4', typeId })
+    useStore.getState().deleteLineType(typeId)
+    expect(activeLine(line.id).typeId).toBeNull()
+    expect(activeProjectState().lineTypes[typeId]).toBeUndefined()
+  })
+
+  it('drops segments of a deleted node', () => {
+    const store = useStore.getState()
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.51, 19.01)
+    const line = store.addLine({ name: '7' })
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectTo(a.id)
+    useStore.getState().connectTo(b.id)
+
+    useStore.getState().deleteNode(b.id)
+    expect(activeLine(line.id).segments).toHaveLength(0)
   })
 
   it('persists the map view on the active project', () => {

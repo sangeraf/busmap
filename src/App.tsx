@@ -11,6 +11,7 @@ export default function App() {
   const setMapView = useStore((s) => s.setMapView)
 
   const setPlacementKind = useStore((s) => s.setPlacementKind)
+  const stopConnecting = useStore((s) => s.stopConnecting)
 
   useEffect(() => {
     void hydrate()
@@ -18,11 +19,13 @@ export default function App() {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setPlacementKind(null)
+      if (event.key !== 'Escape') return
+      setPlacementKind(null)
+      stopConnecting()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [setPlacementKind])
+  }, [setPlacementKind, stopConnecting])
 
   if (!hydrated || !project) {
     return (
