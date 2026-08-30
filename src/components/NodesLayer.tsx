@@ -47,7 +47,7 @@ function useRevealSelected(node: MapNode | undefined) {
 export function NodesLayer({ project }: { project: Project }) {
   const selectedNodeId = useStore((s) => s.selectedNodeId)
   const hoveredNodeId = useStore((s) => s.hoveredNodeId)
-  const setSelectedNode = useStore((s) => s.setSelectedNode)
+  const revealNode = useStore((s) => s.revealNode)
   const setHoveredNode = useStore((s) => s.setHoveredNode)
   const updateNode = useStore((s) => s.updateNode)
   const connect = useStore((s) => s.connect)
@@ -84,7 +84,7 @@ export function NodesLayer({ project }: { project: Project }) {
             }}
             eventHandlers={{
               click: () =>
-                connect ? connectTo(node.id) : setSelectedNode(node.id),
+                connect ? connectTo(node.id) : revealNode(node.id),
               mouseover: () => setHoveredNode(node.id),
               mouseout: () => setHoveredNode(null),
             }}
