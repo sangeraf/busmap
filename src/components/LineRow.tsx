@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../store/useStore'
 import { lineChains, lineStopIds } from '../lib/lines'
+import { ColorPicker } from './ColorPicker'
 import { LineTypeSelect } from './LineTypeSelect'
 import { NodeInfo } from './NodeInfo'
 import type { Line, Project, Segment } from '../types'
@@ -151,15 +152,11 @@ export function LineRow({ line, project }: Props) {
                 rows={2}
                 className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
               />
+              <ColorPicker
+                value={line.color}
+                onChange={(color) => updateLine(line.id, { color })}
+              />
               <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={line.color}
-                  onChange={(event) =>
-                    updateLine(line.id, { color: event.target.value })
-                  }
-                  className="h-7 w-10 rounded border border-slate-300"
-                />
                 <LineTypeSelect
                   project={project}
                   value={line.typeId}

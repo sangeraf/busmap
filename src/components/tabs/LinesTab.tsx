@@ -8,6 +8,7 @@ import {
   filterLines,
   type LineFilters,
 } from '../../lib/lines'
+import { ColorPicker } from '../ColorPicker'
 import { LineRow } from '../LineRow'
 import { LineTypeSelect } from '../LineTypeSelect'
 import type { Line, Project, TypeId } from '../../types'
@@ -106,15 +107,11 @@ export function LinesTab({ project }: { project: Project }) {
               rows={2}
               className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
             />
+            <ColorPicker
+              value={draft.color}
+              onChange={(color) => setDraft({ ...draft, color })}
+            />
             <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={draft.color}
-                onChange={(event) =>
-                  setDraft({ ...draft, color: event.target.value })
-                }
-                className="h-7 w-10 rounded border border-slate-300"
-              />
               <LineTypeSelect
                 project={project}
                 value={draft.typeId}
