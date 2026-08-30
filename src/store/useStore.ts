@@ -11,20 +11,28 @@ import type {
   Project,
   ProjectId,
   SegmentId,
+  SegmentMode,
   TypeId,
 } from '../types'
 import { createProject, duplicateProject } from '../lib/project'
 import { createNode } from '../lib/nodes'
 import {
+  applySegmentMode,
   createLine,
   createLineType,
   createSegment,
   insertStop,
   removeChainStop,
   removeNodeFromLine,
-  reorderSegment,
+  moveChainStop,
 } from '../lib/lines'
 import { createId } from '../lib/id'
+import {
+  hydrateRouteCache,
+  mapWithConcurrency,
+  routeBetween,
+  withEndpoints,
+} from '../lib/routing'
 import {
   emptyWorkspace,
   indexedDbBackend,
@@ -35,6 +43,13 @@ import {
 export type TabId = 'stops' | 'lines' | 'data'
 
 export type SaveState = 'idle' | 'saving' | 'saved'
+
+/** Progress of the background OSRM requests. */
+export interface RoutingState {
+  pending: number
+  failed: number
+  error: string | null
+}
 
 /**
  * Active "click stops on the map to chain them" session. When `bridgeId` is
@@ -58,6 +73,9 @@ interface StoreState {
   hoveredNodeId: NodeId | null
   selectedLineId: LineId | null
   connect: ConnectState | null
+  /** Mode used for connections created from now on. */
+  defaultSegmentMode: SegmentMode
+  routing: RoutingState
   hydrate: () => Promise<void>
   setActiveTab: (tab: TabId) => void
   setPlacementKind: (kind: NodeKind | null) => void
@@ -97,7 +115,20 @@ interface StoreState {
     incomingSegmentId: SegmentId | null,
     outgoingSegmentId: SegmentId | null,
   ) => void
-  moveSegment: (lineId: LineId, segmentId: SegmentId, delta: number) => void
+  moveStop: (
+    lineId: LineId,
+    chainIndex: number,
+    stopIndex: number,
+    delta: number,
+  ) => void
+  setDefaultSegmentMode: (mode: SegmentMode) => void
+  setSegmentMode: (
+    lineId: LineId,
+    segmentId: SegmentId,
+    mode: SegmentMode,
+  ) => void
+  setLineMode: (lineId: LineId, mode: SegmentMode) => void
+  routeStaleSegments: () => Promise<void>
   createNewProject: (name: string) => void
   switchProject: (id: ProjectId) => void
   renameProject: (id: ProjectId, name: string) => void
@@ -136,6 +167,12 @@ function activeProject(workspace: Workspace): Project | undefined {
   return id ? workspace.projects[id] : undefined
 }
 
+/** Segments with an OSRM request in flight, so they are not queued twice. */
+const routingSegments = new Set<SegmentId>()
+
+/** Routing runs are chained, so awaiting one also awaits the queued ones. */
+let routingRun: Promise<void> | null = null
+
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 
 export const useStore = create<StoreState>((set, get) => {
@@ -153,6 +190,79 @@ export const useStore = create<StoreState>((set, get) => {
     persist(workspace)
   }
 
+  async function routePending() {
+    const project = activeProject(get().workspace)
+    if (!project) return
+
+    const targets: {
+      lineId: LineId
+      segmentId: SegmentId
+      ends: LatLng[]
+    }[] = []
+    for (const line of Object.values(project.lines)) {
+      for (const segment of line.segments) {
+        if (segment.mode !== 'road') continue
+        if (!segment.stale && segment.distanceM !== undefined) continue
+        if (routingSegments.has(segment.id)) continue
+        const from = project.nodes[segment.from]
+        const to = project.nodes[segment.to]
+        if (!from || !to) continue
+        routingSegments.add(segment.id)
+        targets.push({
+          lineId: line.id,
+          segmentId: segment.id,
+          ends: [
+            [from.lat, from.lng],
+            [to.lat, to.lng],
+          ],
+        })
+      }
+    }
+    if (targets.length === 0) return
+
+    set((state) => ({
+      routing: {
+        ...state.routing,
+        pending: state.routing.pending + targets.length,
+        error: null,
+      },
+    }))
+
+    const results = await mapWithConcurrency(
+      targets.map((target) => async () => {
+        const route = await routeBetween(target.ends[0], target.ends[1])
+        commit((workspace) => {
+          const line = activeProject(workspace)?.lines[target.lineId]
+          const segment = line?.segments.find(
+            (item) => item.id === target.segmentId,
+          )
+          if (!segment || segment.mode !== 'road') return
+          segment.geometry = withEndpoints(
+            route.geometry,
+            target.ends[0],
+            target.ends[1],
+          )
+          segment.distanceM = route.distanceM
+          segment.durationS = route.durationS
+          segment.stale = false
+        })
+      }),
+    )
+
+    for (const target of targets) routingSegments.delete(target.segmentId)
+    const failures = results.filter((item) => item.status === 'rejected')
+    set((state) => ({
+      routing: {
+        pending: Math.max(0, state.routing.pending - targets.length),
+        failed: failures.length,
+        error:
+          failures.length > 0
+            ? `${failures.length} connection(s) could not be routed`
+            : null,
+      },
+    }))
+  }
+
   return {
     workspace: emptyWorkspace(),
     hydrated: false,
@@ -163,14 +273,18 @@ export const useStore = create<StoreState>((set, get) => {
     hoveredNodeId: null,
     selectedLineId: null,
     connect: null,
+    defaultSegmentMode: 'straight',
+    routing: { pending: 0, failed: 0, error: null },
 
     hydrate: async () => {
       if (get().hydrated) return
+      await hydrateRouteCache()
       const loaded = await storage.load()
       set({
         workspace: withFallbackProject(loaded ?? emptyWorkspace()),
         hydrated: true,
       })
+      void get().routeStaleSegments()
     },
 
     setActiveTab: (tab) => set({ activeTab: tab }),
@@ -202,7 +316,7 @@ export const useStore = create<StoreState>((set, get) => {
       return node
     },
 
-    updateNode: (id, patch) =>
+    updateNode: (id, patch) => {
       commit((workspace) => {
         const projectId = workspace.activeProjectId
         const project = projectId ? workspace.projects[projectId] : undefined
@@ -229,7 +343,11 @@ export const useStore = create<StoreState>((set, get) => {
           }
         }
         project.updatedAt = new Date().toISOString()
-      }),
+      })
+      if (patch.lat !== undefined || patch.lng !== undefined) {
+        void get().routeStaleSegments()
+      }
+    },
 
     deleteNode: (id) => {
       commit((workspace) => {
@@ -391,11 +509,19 @@ export const useStore = create<StoreState>((set, get) => {
             node,
             project.nodes,
             anchorId ? 'after' : 'before',
+            get().defaultSegmentMode,
           )
         } else {
           const from = anchorId ? project.nodes[anchorId] : undefined
           if (!from) return
-          line.segments.push(createSegment(from, node, connect.groupId))
+          line.segments.push(
+            createSegment(
+              from,
+              node,
+              connect.groupId,
+              get().defaultSegmentMode,
+            ),
+          )
         }
         project.updatedAt = new Date().toISOString()
       })
@@ -406,6 +532,7 @@ export const useStore = create<StoreState>((set, get) => {
           bridgeId: bridgeId ? nextBridgeId : null,
         },
       })
+      void get().routeStaleSegments()
     },
 
     removeSegment: (lineId, segmentId) =>
@@ -418,7 +545,7 @@ export const useStore = create<StoreState>((set, get) => {
       }),
 
     /** Drop a stop from a line, splicing its neighbours back together. */
-    removeStop: (lineId, incomingSegmentId, outgoingSegmentId) =>
+    removeStop: (lineId, incomingSegmentId, outgoingSegmentId) => {
       commit((workspace) => {
         const project = activeProject(workspace)
         const line = project?.lines[lineId]
@@ -430,17 +557,66 @@ export const useStore = create<StoreState>((set, get) => {
           project.nodes,
         )
         project.updatedAt = new Date().toISOString()
-      }),
+      })
+      void get().routeStaleSegments()
+    },
 
-    /** Reorder a segment within its own chain, keeping the chain connected. */
-    moveSegment: (lineId, segmentId, delta) =>
+    /** Move a stop within its own chain, keeping the chain connected. */
+    moveStop: (lineId, chainIndex, stopIndex, delta) => {
       commit((workspace) => {
         const project = activeProject(workspace)
         const line = project?.lines[lineId]
         if (!project || !line) return
-        reorderSegment(line, segmentId, delta, project.nodes)
+        moveChainStop(line, chainIndex, stopIndex, delta, project.nodes)
         project.updatedAt = new Date().toISOString()
-      }),
+      })
+      void get().routeStaleSegments()
+    },
+
+    setDefaultSegmentMode: (mode) => set({ defaultSegmentMode: mode }),
+
+    /**
+     * Switching a connection to `road` only marks it stale; the geometry is
+     * filled in by the background router. Switching back to `straight` drops
+     * the road geometry and its distance/duration right away.
+     */
+    setSegmentMode: (lineId, segmentId, mode) => {
+      commit((workspace) => {
+        const project = activeProject(workspace)
+        const line = project?.lines[lineId]
+        const segment = line?.segments.find((item) => item.id === segmentId)
+        if (!project || !segment) return
+        applySegmentMode(segment, mode, project.nodes)
+        project.updatedAt = new Date().toISOString()
+      })
+      void get().routeStaleSegments()
+    },
+
+    setLineMode: (lineId, mode) => {
+      commit((workspace) => {
+        const project = activeProject(workspace)
+        const line = project?.lines[lineId]
+        if (!project || !line) return
+        for (const segment of line.segments) {
+          applySegmentMode(segment, mode, project.nodes)
+        }
+        project.updatedAt = new Date().toISOString()
+      })
+      void get().routeStaleSegments()
+    },
+
+    /**
+     * Fetches the driving route of every road connection that has none yet or
+     * whose stops moved. Requests are cached, de-duplicated and run a few at a
+     * time; segments that fail stay stale so they can be retried.
+     */
+    routeStaleSegments: () => {
+      const run = (routingRun ?? Promise.resolve()).then(() => routePending())
+      routingRun = run.finally(() => {
+        if (routingRun === run) routingRun = null
+      })
+      return routingRun
+    },
 
     createNewProject: (name) => {
       const project = createProject(name)

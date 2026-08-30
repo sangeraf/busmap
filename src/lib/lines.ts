@@ -104,49 +104,70 @@ export function lineChains(line: Line): Chain[] {
 }
 
 /**
- * Move a connection earlier/later inside its own chain. The chain is
- * re-stitched afterwards (`from` follows the previous segment's `to`), so the
- * stop sequence is reordered and the branch never falls apart into a detached
- * part.
+ * Move a stop earlier/later inside its chain, including in and out of the
+ * first position. The connections keep their place in the chain and are
+ * re-stitched to the new stop order, so the branch stays continuous.
  */
-export function reorderSegment(
+export function moveChainStop(
   line: Line,
-  segmentId: SegmentId,
+  chainIndex: number,
+  stopIndex: number,
   delta: number,
   nodes: Record<NodeId, MapNode>,
 ): void {
-  const chain = lineChains(line).find((item) =>
-    item.segments.some((segment) => segment.id === segmentId),
-  )
+  const chain = lineChains(line)[chainIndex]
   if (!chain) return
 
-  const at = chain.segments.findIndex((segment) => segment.id === segmentId)
-  const target = at + delta
-  if (target < 0 || target >= chain.segments.length) return
+  const target = stopIndex + delta
+  if (stopIndex < 0 || stopIndex >= chain.nodeIds.length) return
+  if (target < 0 || target >= chain.nodeIds.length) return
 
-  const positions = chain.segments.map((segment) =>
-    line.segments.indexOf(segment),
-  )
-  const ordered = [...chain.segments]
-  const [moved] = ordered.splice(at, 1)
-  ordered.splice(target, 0, moved)
+  const order = [...chain.nodeIds]
+  const [moved] = order.splice(stopIndex, 1)
+  order.splice(target, 0, moved)
 
-  let cursor = chain.nodeIds[0]
-  ordered.forEach((segment, index) => {
-    if (segment.from !== cursor) {
-      segment.from = cursor
-      restitchGeometry(segment, nodes)
-    }
-    cursor = segment.to
-    line.segments[positions[index]] = segment
+  chain.segments.forEach((segment, index) => {
+    if (segment.from === order[index] && segment.to === order[index + 1]) return
+    segment.from = order[index]
+    segment.to = order[index + 1]
+    restitchGeometry(segment, nodes)
   })
 }
 
 /**
+ * Switch a connection between a straight line and a road route. Roads are
+ * only marked stale here; the geometry is filled in by the router.
+ */
+export function applySegmentMode(
+  segment: Segment,
+  mode: SegmentMode,
+  nodes: Record<NodeId, MapNode>,
+): void {
+  if (segment.mode === mode) return
+  segment.mode = mode
+  if (mode === 'road') {
+    segment.stale = true
+    return
+  }
+  const from = nodes[segment.from]
+  const to = nodes[segment.to]
+  if (from && to) {
+    segment.geometry = [
+      [from.lat, from.lng],
+      [to.lat, to.lng],
+    ]
+  }
+  segment.distanceM = undefined
+  segment.durationS = undefined
+  segment.stale = false
+}
+
+/**
  * Put a stop into an existing connection: `X -> Y` becomes `X -> node -> Y`
- * (`side: 'after'`) or `node -> X -> Y` (`side: 'before'`). Returns the
- * connection the next inserted stop should split, so clicking stops in order
- * keeps threading them into the chain.
+ * (`side: 'after'`) or `node -> X -> Y` (`side: 'before'`). The newly drawn
+ * leg gets `mode`, the rest of the split connection keeps its own. Returns
+ * the connection the next inserted stop should split, so clicking stops in
+ * order keeps threading them into the chain.
  */
 export function insertStop(
   line: Line,
@@ -154,6 +175,7 @@ export function insertStop(
   node: MapNode,
   nodes: Record<NodeId, MapNode>,
   side: 'before' | 'after',
+  mode: SegmentMode,
 ): SegmentId | null {
   const at = line.segments.findIndex((item) => item.id === bridgeId)
   if (at < 0) return null
@@ -164,15 +186,18 @@ export function insertStop(
   if (side === 'before') {
     const head = nodes[bridge.from]
     if (!head) return null
-    const added = createSegment(node, head, groupId)
+    const added = createSegment(node, head, groupId, mode)
+    if (mode === 'road') added.stale = true
     line.segments.splice(at, 0, added)
     return added.id
   }
 
   const tail = nodes[bridge.to]
   if (!tail) return null
-  const added = createSegment(node, tail, groupId)
+  const added = createSegment(node, tail, groupId, bridge.mode)
+  if (bridge.mode === 'road') added.stale = true
   bridge.to = node.id
+  applySegmentMode(bridge, mode, nodes)
   restitchGeometry(bridge, nodes)
   line.segments.splice(at + 1, 0, added)
   return added.id
