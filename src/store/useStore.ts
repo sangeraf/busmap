@@ -10,7 +10,6 @@ import type {
   NodeKind,
   Project,
   ProjectId,
-  Segment,
   SegmentId,
   SegmentMode,
   TypeId,
@@ -18,6 +17,7 @@ import type {
 import { createProject, duplicateProject } from '../lib/project'
 import { createNode } from '../lib/nodes'
 import {
+  applySegmentMode,
   createLine,
   createLineType,
   createSegment,
@@ -172,30 +172,6 @@ const routingSegments = new Set<SegmentId>()
 
 /** Routing runs are chained, so awaiting one also awaits the queued ones. */
 let routingRun: Promise<void> | null = null
-
-function applyMode(
-  segment: Segment,
-  mode: SegmentMode,
-  nodes: Record<NodeId, MapNode>,
-) {
-  if (segment.mode === mode) return
-  segment.mode = mode
-  if (mode === 'road') {
-    segment.stale = true
-    return
-  }
-  const from = nodes[segment.from]
-  const to = nodes[segment.to]
-  if (from && to) {
-    segment.geometry = [
-      [from.lat, from.lng],
-      [to.lat, to.lng],
-    ]
-  }
-  segment.distanceM = undefined
-  segment.durationS = undefined
-  segment.stale = false
-}
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -533,6 +509,7 @@ export const useStore = create<StoreState>((set, get) => {
             node,
             project.nodes,
             anchorId ? 'after' : 'before',
+            get().defaultSegmentMode,
           )
         } else {
           const from = anchorId ? project.nodes[anchorId] : undefined
@@ -609,7 +586,7 @@ export const useStore = create<StoreState>((set, get) => {
         const line = project?.lines[lineId]
         const segment = line?.segments.find((item) => item.id === segmentId)
         if (!project || !segment) return
-        applyMode(segment, mode, project.nodes)
+        applySegmentMode(segment, mode, project.nodes)
         project.updatedAt = new Date().toISOString()
       })
       void get().routeStaleSegments()
@@ -621,7 +598,7 @@ export const useStore = create<StoreState>((set, get) => {
         const line = project?.lines[lineId]
         if (!project || !line) return
         for (const segment of line.segments) {
-          applyMode(segment, mode, project.nodes)
+          applySegmentMode(segment, mode, project.nodes)
         }
         project.updatedAt = new Date().toISOString()
       })

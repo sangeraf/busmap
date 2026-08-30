@@ -135,11 +135,39 @@ export function moveChainStop(
 }
 
 /**
+ * Switch a connection between a straight line and a road route. Roads are
+ * only marked stale here; the geometry is filled in by the router.
+ */
+export function applySegmentMode(
+  segment: Segment,
+  mode: SegmentMode,
+  nodes: Record<NodeId, MapNode>,
+): void {
+  if (segment.mode === mode) return
+  segment.mode = mode
+  if (mode === 'road') {
+    segment.stale = true
+    return
+  }
+  const from = nodes[segment.from]
+  const to = nodes[segment.to]
+  if (from && to) {
+    segment.geometry = [
+      [from.lat, from.lng],
+      [to.lat, to.lng],
+    ]
+  }
+  segment.distanceM = undefined
+  segment.durationS = undefined
+  segment.stale = false
+}
+
+/**
  * Put a stop into an existing connection: `X -> Y` becomes `X -> node -> Y`
- * (`side: 'after'`) or `node -> X -> Y` (`side: 'before'`). Both halves
- * inherit the mode of the connection they replace. Returns the connection the
- * next inserted stop should split, so clicking stops in order keeps threading
- * them into the chain.
+ * (`side: 'after'`) or `node -> X -> Y` (`side: 'before'`). The newly drawn
+ * leg gets `mode`, the rest of the split connection keeps its own. Returns
+ * the connection the next inserted stop should split, so clicking stops in
+ * order keeps threading them into the chain.
  */
 export function insertStop(
   line: Line,
@@ -147,6 +175,7 @@ export function insertStop(
   node: MapNode,
   nodes: Record<NodeId, MapNode>,
   side: 'before' | 'after',
+  mode: SegmentMode,
 ): SegmentId | null {
   const at = line.segments.findIndex((item) => item.id === bridgeId)
   if (at < 0) return null
@@ -157,8 +186,8 @@ export function insertStop(
   if (side === 'before') {
     const head = nodes[bridge.from]
     if (!head) return null
-    const added = createSegment(node, head, groupId, bridge.mode)
-    if (bridge.mode === 'road') added.stale = true
+    const added = createSegment(node, head, groupId, mode)
+    if (mode === 'road') added.stale = true
     line.segments.splice(at, 0, added)
     return added.id
   }
@@ -168,6 +197,7 @@ export function insertStop(
   const added = createSegment(node, tail, groupId, bridge.mode)
   if (bridge.mode === 'road') added.stale = true
   bridge.to = node.id
+  applySegmentMode(bridge, mode, nodes)
   restitchGeometry(bridge, nodes)
   line.segments.splice(at + 1, 0, added)
   return added.id

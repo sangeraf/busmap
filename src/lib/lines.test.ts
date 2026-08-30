@@ -99,9 +99,10 @@ describe('insertStop', () => {
       nodes[1],
       nodeMap(nodes),
       'after',
+      'straight',
     )
     expect(bridge).toBeTruthy()
-    insertStop(line, bridge!, nodes[2], nodeMap(nodes), 'after')
+    insertStop(line, bridge!, nodes[2], nodeMap(nodes), 'after', 'straight')
 
     const chains = lineChains(line)
     expect(chains).toHaveLength(1)
@@ -117,9 +118,37 @@ describe('insertStop', () => {
     const line = createLine({ name: '7' })
     chained(line, nodes.slice(1), line.groups[0].id)
 
-    insertStop(line, line.segments[0].id, nodes[0], nodeMap(nodes), 'before')
+    insertStop(
+      line,
+      line.segments[0].id,
+      nodes[0],
+      nodeMap(nodes),
+      'before',
+      'straight',
+    )
 
     expect(lineChains(line)[0].nodeIds).toEqual(nodes.map((node) => node.id))
+  })
+
+  it('gives the new leg the chosen mode and keeps the rest as it was', () => {
+    const nodes = stops(3)
+    const line = createLine({ name: '7' })
+    const road = createSegment(nodes[0], nodes[2], line.groups[0].id, 'road')
+    road.distanceM = 1000
+    road.durationS = 120
+    line.segments.push(road)
+
+    insertStop(line, road.id, nodes[1], nodeMap(nodes), 'after', 'straight')
+
+    const [first, second] = lineChains(line)[0].segments
+    expect(first.mode).toBe('straight')
+    expect(first.distanceM).toBeUndefined()
+    expect(first.geometry).toEqual([
+      [nodes[0].lat, nodes[0].lng],
+      [nodes[1].lat, nodes[1].lng],
+    ])
+    expect(second.mode).toBe('road')
+    expect(second.stale).toBe(true)
   })
 })
 
