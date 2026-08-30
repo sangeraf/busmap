@@ -25,6 +25,17 @@ npm run dev      # http://localhost:5173
 | `npm run lint` | oxlint |
 | `npm run typecheck` | `tsc -b` |
 
+## Deployment
+
+`.github/workflows/deploy.yml` builds `main` and publishes `dist/` to GitHub
+Pages at `https://<owner>.github.io/<repo>/`. Enable it once under
+*Settings → Pages → Build and deployment → Source: GitHub Actions*.
+
+Pages serves the app from a subpath, so the workflow builds with
+`BASE_PATH=/<repo>/`; local builds default to `/`. For any other static host,
+`npm run build` and serve `dist/` (`npm run preview` does this locally on
+http://localhost:4173).
+
 ## Architecture
 
 - `src/types.ts` — data model. A project holds nodes (stops/waypoints), lines
