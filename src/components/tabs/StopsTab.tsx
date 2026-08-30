@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { VList } from 'virtua'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { VList, type VListHandle } from 'virtua'
 import { useStore } from '../../store/useStore'
 import {
   DEFAULT_NODE_FILTERS,
@@ -8,13 +8,16 @@ import {
   filterNodes,
   type NodeFilters,
 } from '../../lib/nodes'
-import type { MapNode, Project } from '../../types'
+import type { MapNode, NodeId, Project } from '../../types'
 import { NodeRow } from '../NodeRow'
 
 export function StopsTab({ project }: { project: Project }) {
   const placementKind = useStore((s) => s.placementKind)
   const setPlacementKind = useStore((s) => s.setPlacementKind)
+  const editingNodeId = useStore((s) => s.editingNodeId)
   const [filters, setFilters] = useState<NodeFilters>(DEFAULT_NODE_FILTERS)
+  const listRef = useRef<VListHandle>(null)
+  const revealed = useRef<NodeId | null>(null)
 
   const nodes = useMemo<MapNode[]>(
     () => Object.values(project.nodes),
@@ -22,10 +25,27 @@ export function StopsTab({ project }: { project: Project }) {
   )
   const lineIndex = useMemo(() => buildNodeLineIndex(project), [project])
   const fuse = useMemo(() => createNodeFuse(nodes), [nodes])
-  const visible = useMemo(
-    () => filterNodes(nodes, filters, lineIndex, fuse),
-    [nodes, filters, lineIndex, fuse],
-  )
+  const visible = useMemo(() => {
+    const matching = filterNodes(nodes, filters, lineIndex, fuse)
+    const opened = editingNodeId ? project.nodes[editingNodeId] : undefined
+    // A stop opened from the map is listed even when the filters hide it.
+    return opened && !matching.some((node) => node.id === opened.id)
+      ? [opened, ...matching]
+      : matching
+  }, [nodes, filters, lineIndex, fuse, editingNodeId, project.nodes])
+
+  // The list is virtualised, so the opened row has to be scrolled to.
+  useEffect(() => {
+    if (!editingNodeId) {
+      revealed.current = null
+      return
+    }
+    if (revealed.current === editingNodeId) return
+    const index = visible.findIndex((node) => node.id === editingNodeId)
+    if (index < 0) return
+    revealed.current = editingNodeId
+    listRef.current?.scrollToIndex(index, { align: 'center' })
+  }, [editingNodeId, visible])
 
   function patch(update: Partial<NodeFilters>) {
     setFilters((current) => ({ ...current, ...update }))
@@ -118,7 +138,7 @@ export function StopsTab({ project }: { project: Project }) {
             : 'Nothing matches these filters.'}
         </p>
       ) : (
-        <VList className="min-h-0 flex-1">
+        <VList ref={listRef} className="min-h-0 flex-1">
           {visible.map((node) => (
             <NodeRow
               key={node.id}

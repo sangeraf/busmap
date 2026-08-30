@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { ColorPicker } from './ColorPicker'
 import { NodeInfo } from './NodeInfo'
 import { useStore } from '../store/useStore'
@@ -18,7 +17,8 @@ export function NodeRow({ node, project, lineIds }: Props) {
   const deleteNode = useStore((s) => s.deleteNode)
   const setActiveTab = useStore((s) => s.setActiveTab)
   const setSelectedLine = useStore((s) => s.setSelectedLine)
-  const [editing, setEditing] = useState(false)
+  const editing = useStore((s) => s.editingNodeId === node.id)
+  const setEditingNode = useStore((s) => s.setEditingNode)
   const lineCount = lineIds.length
 
   return (
@@ -47,7 +47,7 @@ export function NodeRow({ node, project, lineIds }: Props) {
         </span>
         <button
           type="button"
-          onClick={() => setEditing((value) => !value)}
+          onClick={() => setEditingNode(editing ? null : node.id)}
           className="shrink-0 text-[11px] text-slate-500 hover:text-slate-900"
         >
           {editing ? 'Close' : 'Edit'}

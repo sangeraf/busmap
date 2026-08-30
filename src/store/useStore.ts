@@ -105,6 +105,8 @@ interface StoreState {
   connect: ConnectState | null
   /** Stop whose quick name/colour editor is open right after placing it. */
   namingNodeId: NodeId | null
+  /** Stop whose row in the Stops tab is expanded for editing. */
+  editingNodeId: NodeId | null
   /** Colour given to the next stop; waypoints stay grey. */
   lastStopColor: string
   /** Colours picked lately, offered as swatches. Most recent first. */
@@ -126,6 +128,9 @@ interface StoreState {
   setSelectedNode: (id: NodeId | null) => void
   setHoveredNode: (id: NodeId | null) => void
   setNamingNode: (id: NodeId | null) => void
+  setEditingNode: (id: NodeId | null) => void
+  /** Opens a node's editor in the Stops tab, wherever it was clicked from. */
+  revealNode: (id: NodeId) => void
   rememberColor: (color: string) => void
   addNode: (kind: NodeKind, lat: number, lng: number) => MapNode
   updateNode: (id: NodeId, patch: Partial<Omit<MapNode, 'id'>>) => void
@@ -458,6 +463,7 @@ export const useStore = create<StoreState>((set, get) => {
     saveState: 'idle',
     placementKind: null,
     selectedNodeId: null,
+    editingNodeId: null,
     hoveredNodeId: null,
     selectedLineId: null,
     connect: null,
@@ -604,6 +610,11 @@ export const useStore = create<StoreState>((set, get) => {
 
     setSelectedNode: (id) => set({ selectedNodeId: id }),
 
+    setEditingNode: (id) => set({ editingNodeId: id }),
+
+    revealNode: (id) =>
+      set({ selectedNodeId: id, editingNodeId: id, activeTab: 'stops' }),
+
     setHoveredNode: (id) => set({ hoveredNodeId: id }),
 
     setNamingNode: (id) => set({ namingNodeId: id }),
@@ -696,6 +707,7 @@ export const useStore = create<StoreState>((set, get) => {
         project.updatedAt = new Date().toISOString()
       })
       if (get().selectedNodeId === id) set({ selectedNodeId: null })
+      if (get().editingNodeId === id) set({ editingNodeId: null })
       if (get().namingNodeId === id) set({ namingNodeId: null })
       const { connect } = get()
       if (connect?.anchorId === id)

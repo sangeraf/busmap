@@ -190,6 +190,20 @@ describe('workspace store', () => {
     )
   })
 
+  it('opens a stop for editing on the stops tab when revealed', () => {
+    const store = useStore.getState()
+    const a = store.addNode('stop', 47.5, 19.0)
+    useStore.getState().setActiveTab('lines')
+
+    useStore.getState().revealNode(a.id)
+    expect(useStore.getState().activeTab).toBe('stops')
+    expect(useStore.getState().selectedNodeId).toBe(a.id)
+    expect(useStore.getState().editingNodeId).toBe(a.id)
+
+    useStore.getState().deleteNode(a.id)
+    expect(useStore.getState().editingNodeId).toBeNull()
+  })
+
   it('chains clicked stops into directed segments', () => {
     const store = useStore.getState()
     const a = store.addNode('stop', 47.5, 19.0)
