@@ -6,6 +6,7 @@ import {
   serializeProject,
   type StoredProject,
 } from '../lib/serialize'
+import type { CachedRoute, RouteCacheBackend } from '../lib/routing'
 
 const STORE_KEY = 'busmap.workspace'
 
@@ -66,6 +67,29 @@ export const indexedDbBackend: WorkspaceStorage = {
       await idbSet(STORE_KEY, toStored(workspace))
     } catch (error) {
       console.error('Failed to persist workspace', error)
+    }
+  },
+}
+
+const ROUTE_CACHE_KEY = 'busmap.routes'
+
+/** Road legs survive reloads, so re-opening a project costs no OSRM calls. */
+export const indexedDbRouteCache: RouteCacheBackend = {
+  async load() {
+    try {
+      return (
+        (await idbGet<Record<string, CachedRoute>>(ROUTE_CACHE_KEY)) ?? null
+      )
+    } catch (error) {
+      console.error('Failed to read route cache', error)
+      return null
+    }
+  },
+  async save(entries) {
+    try {
+      await idbSet(ROUTE_CACHE_KEY, entries)
+    } catch (error) {
+      console.error('Failed to persist route cache', error)
     }
   },
 }

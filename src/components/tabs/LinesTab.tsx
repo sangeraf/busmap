@@ -30,6 +30,10 @@ export function LinesTab({ project }: { project: Project }) {
   const addLine = useStore((s) => s.addLine)
   const connect = useStore((s) => s.connect)
   const stopConnecting = useStore((s) => s.stopConnecting)
+  const defaultSegmentMode = useStore((s) => s.defaultSegmentMode)
+  const setDefaultSegmentMode = useStore((s) => s.setDefaultSegmentMode)
+  const routing = useStore((s) => s.routing)
+  const routeStaleSegments = useStore((s) => s.routeStaleSegments)
   const [filters, setFilters] = useState<LineFilters>(DEFAULT_LINE_FILTERS)
   const [draft, setDraft] = useState<Draft | null>(null)
 
@@ -43,6 +47,20 @@ export function LinesTab({ project }: { project: Project }) {
     [lines, filters, fuse],
   )
   const types = Object.values(project.lineTypes)
+  const staleCount = useMemo(
+    () =>
+      lines.reduce(
+        (total, line) =>
+          total +
+          line.segments.filter(
+            (segment) =>
+              segment.mode === 'road' &&
+              (segment.stale || segment.distanceM === undefined),
+          ).length,
+        0,
+      ),
+    [lines],
+  )
 
   function patch(update: Partial<LineFilters>) {
     setFilters((current) => ({ ...current, ...update }))
@@ -129,6 +147,45 @@ export function LinesTab({ project }: { project: Project }) {
               className="shrink-0 rounded border border-blue-300 px-2 py-0.5"
             >
               Done
+            </button>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 text-xs text-slate-600">
+          <span className="shrink-0">New connections:</span>
+          {(['straight', 'road'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setDefaultSegmentMode(mode)}
+              className={`rounded px-2 py-1 ${
+                defaultSegmentMode === mode
+                  ? 'bg-slate-800 text-white'
+                  : 'border border-slate-300'
+              }`}
+            >
+              {mode === 'straight' ? 'Straight' : 'Via roads'}
+            </button>
+          ))}
+          {routing.pending > 0 && (
+            <span className="ml-auto shrink-0 text-blue-600">
+              Routing {routing.pending}…
+            </span>
+          )}
+        </div>
+
+        {staleCount > 0 && routing.pending === 0 && (
+          <div className="flex items-center gap-2 rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+            <span className="min-w-0 flex-1">
+              {routing.error ??
+                `${staleCount} road connection(s) need a route.`}
+            </span>
+            <button
+              type="button"
+              onClick={() => void routeStaleSegments()}
+              className="shrink-0 rounded border border-amber-300 px-2 py-0.5"
+            >
+              Route now
             </button>
           </div>
         )}

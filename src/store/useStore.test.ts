@@ -1,5 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import polyline from '@mapbox/polyline'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setStorageBackend, useStore } from './useStore'
+import { clearRouteCache } from '../lib/routing'
+import type { LatLng } from '../types'
 import {
   emptyWorkspace,
   type Workspace,
@@ -38,6 +41,15 @@ describe('workspace store', () => {
       selectedLineId: null,
     })
     await useStore.getState().hydrate()
+  })
+
+  afterEach(() => {
+    clearRouteCache()
+    useStore.setState({
+      defaultSegmentMode: 'straight',
+      routing: { pending: 0, failed: 0, error: null },
+    })
+    vi.unstubAllGlobals()
   })
 
   it('creates a default project when storage is empty', () => {
@@ -274,6 +286,107 @@ describe('workspace store', () => {
     useStore.getState().removeStop(line.id, null, first.id)
     expect(activeLine(line.id).segments).toHaveLength(0)
     expect(activeProjectState().nodes[nodes[0].id]).toBeDefined()
+  })
+
+  it('routes road connections and re-routes them when a stop moves', async () => {
+    const geometry: LatLng[] = [
+      [47.5, 19.0],
+      [47.505, 19.005],
+      [47.51, 19.01],
+    ]
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        code: 'Ok',
+        routes: [
+          {
+            geometry: polyline.encode(geometry, 6),
+            distance: 900,
+            duration: 120,
+          },
+        ],
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useStore.getState()
+    store.setDefaultSegmentMode('road')
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.51, 19.01)
+    const line = store.addLine({ name: '7' })
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectTo(a.id)
+    useStore.getState().connectTo(b.id)
+
+    await useStore.getState().routeStaleSegments()
+    const routed = activeLine(line.id).segments[0]
+    expect(routed.mode).toBe('road')
+    expect(routed.stale).toBe(false)
+    expect(routed.distanceM).toBe(900)
+    expect(routed.durationS).toBe(120)
+    expect(routed.geometry).toHaveLength(3)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    useStore.getState().updateNode(b.id, { lat: 47.6, lng: 19.1 })
+    await useStore.getState().routeStaleSegments()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(activeLine(line.id).segments[0].stale).toBe(false)
+  })
+
+  it('keeps a failed road connection stale and reports the error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ code: 'NoRoute', message: 'no route' }),
+      })),
+    )
+
+    const store = useStore.getState()
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.51, 19.01)
+    const line = store.addLine({ name: '9' })
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectTo(a.id)
+    useStore.getState().connectTo(b.id)
+
+    const segmentId = activeLine(line.id).segments[0].id
+    useStore.getState().setSegmentMode(line.id, segmentId, 'road')
+    await useStore.getState().routeStaleSegments()
+
+    expect(activeLine(line.id).segments[0].stale).toBe(true)
+    expect(useStore.getState().routing.failed).toBe(1)
+    expect(useStore.getState().routing.pending).toBe(0)
+    expect(useStore.getState().routing.error).toContain('could not be routed')
+  })
+
+  it('switches a whole line back to straight geometry', async () => {
+    const store = useStore.getState()
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.51, 19.01)
+    const line = store.addLine({ name: '4' })
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectTo(a.id)
+    useStore.getState().connectTo(b.id)
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('offline')
+      }),
+    )
+    useStore.getState().setLineMode(line.id, 'road')
+    expect(activeLine(line.id).segments[0].mode).toBe('road')
+
+    useStore.getState().setLineMode(line.id, 'straight')
+    const segment = activeLine(line.id).segments[0]
+    expect(segment.mode).toBe('straight')
+    expect(segment.stale).toBe(false)
+    expect(segment.distanceM).toBeUndefined()
+    expect(segment.geometry).toEqual([
+      [a.lat, a.lng],
+      [b.lat, b.lng],
+    ])
   })
 
   it('persists the map view on the active project', () => {

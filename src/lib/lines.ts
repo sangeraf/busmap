@@ -144,9 +144,10 @@ export function reorderSegment(
 
 /**
  * Put a stop into an existing connection: `X -> Y` becomes `X -> node -> Y`
- * (`side: 'after'`) or `node -> X -> Y` (`side: 'before'`). Returns the
- * connection the next inserted stop should split, so clicking stops in order
- * keeps threading them into the chain.
+ * (`side: 'after'`) or `node -> X -> Y` (`side: 'before'`). Both halves
+ * inherit the mode of the connection they replace. Returns the connection the
+ * next inserted stop should split, so clicking stops in order keeps threading
+ * them into the chain.
  */
 export function insertStop(
   line: Line,
@@ -164,14 +165,16 @@ export function insertStop(
   if (side === 'before') {
     const head = nodes[bridge.from]
     if (!head) return null
-    const added = createSegment(node, head, groupId)
+    const added = createSegment(node, head, groupId, bridge.mode)
+    if (bridge.mode === 'road') added.stale = true
     line.segments.splice(at, 0, added)
     return added.id
   }
 
   const tail = nodes[bridge.to]
   if (!tail) return null
-  const added = createSegment(node, tail, groupId)
+  const added = createSegment(node, tail, groupId, bridge.mode)
+  if (bridge.mode === 'road') added.stale = true
   bridge.to = node.id
   restitchGeometry(bridge, nodes)
   line.segments.splice(at + 1, 0, added)

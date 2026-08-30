@@ -2,7 +2,18 @@ import { useState } from 'react'
 import { useStore } from '../store/useStore'
 import { lineChains, lineStopIds } from '../lib/lines'
 import { LineTypeSelect } from './LineTypeSelect'
-import type { Line, Project } from '../types'
+import type { Line, Project, Segment } from '../types'
+
+/** Tooltip of the straight/road toggle, with the routed length if known. */
+function legTitle(segment: Segment): string {
+  if (segment.mode !== 'road') return 'Straight line — switch to roads'
+  if (segment.stale || segment.distanceM === undefined) {
+    return 'Via roads — waiting for a route'
+  }
+  const km = (segment.distanceM / 1000).toFixed(1)
+  const min = Math.round((segment.durationS ?? 0) / 60)
+  return `Via roads — ${km} km, ${min} min — switch to a straight line`
+}
 
 interface Props {
   line: Line
@@ -23,6 +34,8 @@ export function LineRow({ line, project }: Props) {
   const stopConnecting = useStore((s) => s.stopConnecting)
   const removeStop = useStore((s) => s.removeStop)
   const moveSegment = useStore((s) => s.moveSegment)
+  const setSegmentMode = useStore((s) => s.setSegmentMode)
+  const setLineMode = useStore((s) => s.setLineMode)
 
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -89,6 +102,22 @@ export function LineRow({ line, project }: Props) {
               className="text-slate-600 hover:underline"
             >
               + Branch
+            </button>
+            <button
+              type="button"
+              title="Route every connection of this line along roads"
+              onClick={() => setLineMode(line.id, 'road')}
+              className="text-slate-600 hover:underline"
+            >
+              All via roads
+            </button>
+            <button
+              type="button"
+              title="Turn every connection of this line into a straight line"
+              onClick={() => setLineMode(line.id, 'straight')}
+              className="text-slate-600 hover:underline"
+            >
+              All straight
             </button>
             <button
               type="button"
@@ -261,13 +290,29 @@ export function LineRow({ line, project }: Props) {
                             {node?.name ?? 'Missing stop'}
                           </button>
                           <span className="flex shrink-0 items-center gap-1 text-slate-400">
-                            {incoming?.stale && (
-                              <span
-                                title="Road geometry is out of date"
-                                className="text-amber-500"
+                            {incoming && (
+                              <button
+                                type="button"
+                                title={legTitle(incoming)}
+                                onClick={() =>
+                                  setSegmentMode(
+                                    line.id,
+                                    incoming.id,
+                                    incoming.mode === 'road'
+                                      ? 'straight'
+                                      : 'road',
+                                  )
+                                }
+                                className={
+                                  incoming.mode === 'road'
+                                    ? incoming.stale
+                                      ? 'text-amber-500'
+                                      : 'text-emerald-600'
+                                    : 'hover:text-slate-900'
+                                }
                               >
-                                ●
-                              </span>
+                                {incoming.mode === 'road' ? '↝' : '╱'}
+                              </button>
                             )}
                             {incoming && (
                               <>
