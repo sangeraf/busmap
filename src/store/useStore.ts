@@ -571,7 +571,13 @@ export const useStore = create<StoreState>((set, get) => {
     },
 
     updateNode: (id, patch) => {
-      const kind = patch.kind ?? activeProject(get().workspace)?.nodes[id]?.kind
+      const current = activeProject(get().workspace)?.nodes[id]
+      if (!current) return
+      // `updatedAt` alone would make a no-op edit look like a change and cost
+      // an undo step, so patches that change nothing are dropped here.
+      const entries = Object.entries(patch) as [keyof MapNode, unknown][]
+      if (entries.every(([key, value]) => current[key] === value)) return
+      const kind = patch.kind ?? current.kind
       if (patch.color && kind === 'stop') set({ lastStopColor: patch.color })
       commit((workspace) => {
         const projectId = workspace.activeProjectId

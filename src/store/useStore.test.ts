@@ -491,6 +491,19 @@ describe('workspace store', () => {
     expect(useStore.getState().history.future).toBe(0)
   })
 
+  it('costs no undo step when an edit changes nothing', () => {
+    const node = useStore.getState().addNode('stop', 47.5, 19.0)
+    // What the quick editor writes again when it closes.
+    useStore.getState().updateNode(node.id, {
+      name: node.name,
+      color: node.color,
+    })
+    expect(useStore.getState().history.past).toBe(1)
+
+    useStore.getState().undo()
+    expect(activeProjectState().nodes[node.id]).toBeUndefined()
+  })
+
   it('drops the redo stack once a new edit lands', () => {
     const store = useStore.getState()
     store.addNode('stop', 47.5, 19.0)
