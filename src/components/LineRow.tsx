@@ -20,7 +20,7 @@ export function LineRow({ line, project }: Props) {
   const renameBranch = useStore((s) => s.renameBranch)
   const startConnecting = useStore((s) => s.startConnecting)
   const stopConnecting = useStore((s) => s.stopConnecting)
-  const removeSegment = useStore((s) => s.removeSegment)
+  const removeStop = useStore((s) => s.removeStop)
   const moveSegment = useStore((s) => s.moveSegment)
 
   const [expanded, setExpanded] = useState(false)
@@ -188,7 +188,8 @@ export function LineRow({ line, project }: Props) {
                   <ol className="mt-1 space-y-0.5">
                     {chain.nodeIds.map((nodeId, index) => {
                       const node = project.nodes[nodeId]
-                      const segment = chain.segments[index - 1]
+                      const incoming = chain.segments[index - 1]
+                      const outgoing = chain.segments[index]
                       return (
                         <li
                           key={`${nodeId}-${index}`}
@@ -204,48 +205,58 @@ export function LineRow({ line, project }: Props) {
                           >
                             {node?.name ?? 'Missing stop'}
                           </button>
-                          {segment && (
-                            <span className="flex shrink-0 items-center gap-1 text-slate-400">
-                              {segment.stale && (
-                                <span
-                                  title="Road geometry is out of date"
-                                  className="text-amber-500"
+                          <span className="flex shrink-0 items-center gap-1 text-slate-400">
+                            {incoming?.stale && (
+                              <span
+                                title="Road geometry is out of date"
+                                className="text-amber-500"
+                              >
+                                ●
+                              </span>
+                            )}
+                            {incoming && (
+                              <>
+                                <button
+                                  type="button"
+                                  title="Move earlier"
+                                  onClick={() =>
+                                    moveSegment(line.id, incoming.id, -1)
+                                  }
+                                  className="hover:text-slate-900"
                                 >
-                                  ●
-                                </span>
-                              )}
-                              <button
-                                type="button"
-                                title="Move earlier"
-                                onClick={() =>
-                                  moveSegment(line.id, segment.id, -1)
-                                }
-                                className="hover:text-slate-900"
-                              >
-                                ↑
-                              </button>
-                              <button
-                                type="button"
-                                title="Move later"
-                                onClick={() =>
-                                  moveSegment(line.id, segment.id, 1)
-                                }
-                                className="hover:text-slate-900"
-                              >
-                                ↓
-                              </button>
-                              <button
-                                type="button"
-                                title="Remove connection"
-                                onClick={() =>
-                                  removeSegment(line.id, segment.id)
-                                }
-                                className="hover:text-red-600"
-                              >
-                                ✕
-                              </button>
-                            </span>
-                          )}
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Move later"
+                                  onClick={() =>
+                                    moveSegment(line.id, incoming.id, 1)
+                                  }
+                                  className="hover:text-slate-900"
+                                >
+                                  ↓
+                                </button>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              title={
+                                incoming && outgoing
+                                  ? 'Remove stop and connect its neighbours'
+                                  : 'Remove stop from this branch'
+                              }
+                              onClick={() =>
+                                removeStop(
+                                  line.id,
+                                  incoming?.id ?? null,
+                                  outgoing?.id ?? null,
+                                )
+                              }
+                              className="hover:text-red-600"
+                            >
+                              ✕
+                            </button>
+                          </span>
                         </li>
                       )
                     })}

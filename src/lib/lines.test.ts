@@ -8,6 +8,8 @@ import {
   filterLines,
   lineChains,
   lineStopIds,
+  removeChainStop,
+  removeNodeFromLine,
   reorderSegment,
 } from './lines'
 import type { Line, MapNode } from '../types'
@@ -79,11 +81,70 @@ describe('lineChains', () => {
   })
 })
 
-describe('reorderSegment', () => {
-  function nodeMap(nodes: MapNode[]): Record<string, MapNode> {
-    return Object.fromEntries(nodes.map((node) => [node.id, node]))
-  }
+function nodeMap(nodes: MapNode[]): Record<string, MapNode> {
+  return Object.fromEntries(nodes.map((node) => [node.id, node]))
+}
 
+describe('removing a stop from a line', () => {
+  it('connects the neighbours of an inner stop', () => {
+    const nodes = stops(4)
+    const line = createLine({ name: '7' })
+    chained(line, nodes, line.groups[0].id)
+
+    const chain = lineChains(line)[0]
+    removeChainStop(
+      line,
+      chain.segments[0].id,
+      chain.segments[1].id,
+      nodeMap(nodes),
+    )
+
+    const chains = lineChains(line)
+    expect(chains).toHaveLength(1)
+    expect(chains[0].nodeIds).toEqual([nodes[0].id, nodes[2].id, nodes[3].id])
+    expect(chains[0].segments[0].geometry).toEqual([
+      [nodes[0].lat, nodes[0].lng],
+      [nodes[2].lat, nodes[2].lng],
+    ])
+  })
+
+  it('shortens the chain at either end', () => {
+    const nodes = stops(4)
+    const line = createLine({ name: '7' })
+    chained(line, nodes, line.groups[0].id)
+
+    removeChainStop(
+      line,
+      null,
+      lineChains(line)[0].segments[0].id,
+      nodeMap(nodes),
+    )
+    let chain = lineChains(line)[0]
+    expect(chain.nodeIds).toEqual([nodes[1].id, nodes[2].id, nodes[3].id])
+
+    chain = lineChains(line)[0]
+    removeChainStop(line, chain.segments[1].id, null, nodeMap(nodes))
+    expect(lineChains(line)[0].nodeIds).toEqual([nodes[1].id, nodes[2].id])
+  })
+
+  it('heals every branch when a node is deleted', () => {
+    const nodes = stops(4)
+    const line = createLine({ name: '7' })
+    const outbound = line.groups[0].id
+    chained(line, nodes, outbound)
+    line.groups.push({ id: 'grp-back', label: 'Branch 2' })
+    chained(line, [...nodes].reverse(), 'grp-back')
+
+    removeNodeFromLine(line, nodes[1].id, nodeMap(nodes))
+
+    expect(lineChains(line).map((chain) => chain.nodeIds)).toEqual([
+      [nodes[0].id, nodes[2].id, nodes[3].id],
+      [nodes[3].id, nodes[2].id, nodes[0].id],
+    ])
+  })
+})
+
+describe('reorderSegment', () => {
   it('reorders the stop sequence without breaking the chain', () => {
     const nodes = stops(4)
     const line = createLine({ name: '7' })
@@ -140,7 +201,10 @@ describe('line filtering', () => {
   const villamos = 'typ-villamos'
   const lines = [
     { ...createLine({ name: '9', typeId: busz }), createdAt: '2024-01-01' },
-    { ...createLine({ name: '10', typeId: villamos }), createdAt: '2024-01-02' },
+    {
+      ...createLine({ name: '10', typeId: villamos }),
+      createdAt: '2024-01-02',
+    },
     { ...createLine({ name: 'Airport express' }), createdAt: '2024-01-03' },
   ]
 

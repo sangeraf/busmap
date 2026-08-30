@@ -19,6 +19,8 @@ import {
   createLine,
   createLineType,
   createSegment,
+  removeChainStop,
+  removeNodeFromLine,
   reorderSegment,
 } from '../lib/lines'
 import { createId } from '../lib/id'
@@ -65,7 +67,10 @@ interface StoreState {
     color?: string
     typeId?: TypeId | null
   }) => Line
-  updateLine: (id: LineId, patch: Partial<Omit<Line, 'id' | 'segments'>>) => void
+  updateLine: (
+    id: LineId,
+    patch: Partial<Omit<Line, 'id' | 'segments'>>,
+  ) => void
   deleteLine: (id: LineId) => void
   addLineType: (name: string) => TypeId | null
   renameLineType: (id: TypeId, name: string) => void
@@ -76,6 +81,11 @@ interface StoreState {
   stopConnecting: () => void
   connectTo: (nodeId: NodeId) => void
   removeSegment: (lineId: LineId, segmentId: SegmentId) => void
+  removeStop: (
+    lineId: LineId,
+    incomingSegmentId: SegmentId | null,
+    outgoingSegmentId: SegmentId | null,
+  ) => void
   moveSegment: (lineId: LineId, segmentId: SegmentId, delta: number) => void
   createNewProject: (name: string) => void
   switchProject: (id: ProjectId) => void
@@ -217,15 +227,14 @@ export const useStore = create<StoreState>((set, get) => {
         if (!project) return
         delete project.nodes[id]
         for (const line of Object.values(project.lines)) {
-          line.segments = line.segments.filter(
-            (segment) => segment.from !== id && segment.to !== id,
-          )
+          removeNodeFromLine(line, id, project.nodes)
         }
         project.updatedAt = new Date().toISOString()
       })
       if (get().selectedNodeId === id) set({ selectedNodeId: null })
       const { connect } = get()
-      if (connect?.anchorId === id) set({ connect: { ...connect, anchorId: null } })
+      if (connect?.anchorId === id)
+        set({ connect: { ...connect, anchorId: null } })
     },
 
     setSelectedLine: (id) => set({ selectedLineId: id }),
@@ -254,7 +263,8 @@ export const useStore = create<StoreState>((set, get) => {
         if (project) delete project.lines[id]
       })
       set((state) => ({
-        selectedLineId: state.selectedLineId === id ? null : state.selectedLineId,
+        selectedLineId:
+          state.selectedLineId === id ? null : state.selectedLineId,
         connect: state.connect?.lineId === id ? null : state.connect,
       }))
     },
@@ -305,8 +315,9 @@ export const useStore = create<StoreState>((set, get) => {
 
     renameBranch: (lineId, groupId, label) =>
       commit((workspace) => {
-        const group = activeProject(workspace)
-          ?.lines[lineId]?.groups.find((item) => item.id === groupId)
+        const group = activeProject(workspace)?.lines[lineId]?.groups.find(
+          (item) => item.id === groupId,
+        )
         if (group && label.trim()) group.label = label.trim()
       }),
 
@@ -350,6 +361,21 @@ export const useStore = create<StoreState>((set, get) => {
         line.segments = line.segments.filter(
           (segment) => segment.id !== segmentId,
         )
+      }),
+
+    /** Drop a stop from a line, splicing its neighbours back together. */
+    removeStop: (lineId, incomingSegmentId, outgoingSegmentId) =>
+      commit((workspace) => {
+        const project = activeProject(workspace)
+        const line = project?.lines[lineId]
+        if (!project || !line) return
+        removeChainStop(
+          line,
+          incomingSegmentId,
+          outgoingSegmentId,
+          project.nodes,
+        )
+        project.updatedAt = new Date().toISOString()
       }),
 
     /** Reorder a segment within its own chain, keeping the chain connected. */

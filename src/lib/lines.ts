@@ -142,6 +142,57 @@ export function reorderSegment(
   })
 }
 
+/**
+ * Drop one stop from a chain and heal the gap: an inner stop's two
+ * connections collapse into a single `previous -> next` one, an end stop just
+ * takes its only connection with it. `incomingId`/`outgoingId` identify the
+ * connections around the visited stop (either may be null at a chain end).
+ */
+export function removeChainStop(
+  line: Line,
+  incomingId: SegmentId | null,
+  outgoingId: SegmentId | null,
+  nodes: Record<NodeId, MapNode>,
+): void {
+  const incoming = line.segments.find((item) => item.id === incomingId)
+  const outgoing = line.segments.find((item) => item.id === outgoingId)
+  const dropped = incoming && outgoing ? outgoing : (incoming ?? outgoing)
+  if (!dropped) return
+
+  if (incoming && outgoing) {
+    incoming.to = outgoing.to
+    if (outgoing.mode === 'road') incoming.mode = 'road'
+    restitchGeometry(incoming, nodes)
+  }
+  line.segments = line.segments.filter((item) => item.id !== dropped.id)
+}
+
+/** Remove every visit of a node from a line, healing each chain. */
+export function removeNodeFromLine(
+  line: Line,
+  nodeId: NodeId,
+  nodes: Record<NodeId, MapNode>,
+): void {
+  const touches = () =>
+    line.segments.some(
+      (segment) => segment.from === nodeId || segment.to === nodeId,
+    )
+  for (let guard = line.segments.length; touches() && guard >= 0; guard -= 1) {
+    const chain = lineChains(line).find((item) => item.nodeIds.includes(nodeId))
+    if (!chain) break
+    const index = chain.nodeIds.indexOf(nodeId)
+    removeChainStop(
+      line,
+      chain.segments[index - 1]?.id ?? null,
+      chain.segments[index]?.id ?? null,
+      nodes,
+    )
+  }
+  line.segments = line.segments.filter(
+    (segment) => segment.from !== nodeId && segment.to !== nodeId,
+  )
+}
+
 function restitchGeometry(segment: Segment, nodes: Record<NodeId, MapNode>) {
   if (segment.mode === 'road') {
     segment.stale = true
