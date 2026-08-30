@@ -1,6 +1,7 @@
 import polyline from '@mapbox/polyline'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setStorageBackend, useStore } from './useStore'
+import { STOP_COLOR, WAYPOINT_COLOR } from '../lib/nodes'
 import { clearRouteCache } from '../lib/routing'
 import { parseProjectFile } from '../lib/exchange'
 import type { LatLng } from '../types'
@@ -40,6 +41,8 @@ describe('workspace store', () => {
       connect: null,
       selectedNodeId: null,
       selectedLineId: null,
+      namingNodeId: null,
+      lastColor: { stop: STOP_COLOR, waypoint: WAYPOINT_COLOR },
     })
     await useStore.getState().hydrate()
   })
@@ -137,6 +140,29 @@ describe('workspace store', () => {
     expect(first.name).toBe('Stop 1')
     expect(second.name).toBe('Stop 2')
     expect(waypoint.name).toBe('Waypoint 1')
+  })
+
+  it('prefills a new stop from its neighbour and the last colour', () => {
+    const first = useStore.getState().addNode('stop', 47.5, 19.0)
+    useStore.getState().updateNode(first.id, {
+      name: 'Astoria',
+      color: '#ff0000',
+    })
+
+    // ~30 m away: same stop, other direction.
+    const near = useStore.getState().addNode('stop', 47.50027, 19.0)
+    expect(near.name).toBe('Astoria')
+    expect(near.color).toBe('#ff0000')
+    expect(useStore.getState().namingNodeId).toBe(near.id)
+
+    const far = useStore.getState().addNode('stop', 47.53, 19.0)
+    expect(far.name).toBe('Stop 3')
+    expect(far.color).toBe('#ff0000')
+
+    // Colours are remembered per kind.
+    expect(useStore.getState().addNode('waypoint', 47.6, 19.0).color).toBe(
+      WAYPOINT_COLOR,
+    )
   })
 
   it('chains clicked stops into directed segments', () => {

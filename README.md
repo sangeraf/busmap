@@ -63,6 +63,14 @@ The app targets networks of ~10,000 stops and ~500 lines. Consequences already
 baked in: IndexedDB instead of localStorage, polyline-encoded geometry, and a
 canvas-rendered Leaflet map. Sidebar lists are virtualized as they are built.
 
+### Placing stops
+
+Placement mode stays armed until it is switched off, and every placed node
+opens a small name/colour editor with the name focused, so a row of stops is
+`S`, click, type, Enter, click, type, Enter… The name is prefilled from the
+nearest node of the same kind within 200 m (the other direction of the same
+stop), and the colour is the last one used for that kind.
+
 ## Keyboard shortcuts
 
 `S`/`W` place a stop/waypoint, `1`/`2`/`3` switch tabs, `Ctrl+Z` /

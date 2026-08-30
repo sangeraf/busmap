@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Header } from './components/Header'
 import { Legend } from './components/Legend'
 import { MapView } from './components/MapView'
+import { QuickNodeEditor } from './components/QuickNodeEditor'
 import { ShortcutsHelp } from './components/ShortcutsHelp'
 import { Sidebar } from './components/Sidebar'
 import { useShortcuts } from './hooks/useShortcuts'
@@ -12,6 +13,7 @@ export default function App() {
   const hydrated = useStore((s) => s.hydrated)
   const project = useActiveProject()
   const setMapView = useStore((s) => s.setMapView)
+  const namingNodeId = useStore((s) => s.namingNodeId)
 
   const [legendOpen, setLegendOpen] = useState(true)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -55,6 +57,12 @@ export default function App() {
             >
               Legend
             </button>
+          )}
+          {namingNodeId && project.nodes[namingNodeId] && (
+            <QuickNodeEditor
+              key={namingNodeId}
+              node={project.nodes[namingNodeId]}
+            />
           )}
           {helpOpen && <ShortcutsHelp onClose={() => setHelpOpen(false)} />}
         </main>
