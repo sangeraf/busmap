@@ -2,6 +2,7 @@ import polyline from '@mapbox/polyline'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setStorageBackend, useStore } from './useStore'
 import { clearRouteCache } from '../lib/routing'
+import { parseProjectFile } from '../lib/exchange'
 import type { LatLng } from '../types'
 import {
   emptyWorkspace,
@@ -50,6 +51,35 @@ describe('workspace store', () => {
       routing: { pending: 0, failed: 0, error: null },
     })
     vi.unstubAllGlobals()
+  })
+
+  it('imports a project as a new one or into the current one', () => {
+    const store = useStore.getState()
+    const kept = store.addNode('stop', 47.4, 18.9)
+    const imported = parseProjectFile(
+      JSON.stringify({
+        name: 'Imported',
+        nodes: { a: { lat: 47.5, lng: 19.0, name: 'A' } },
+      }),
+    )
+    expect(imported.ok).toBe(true)
+    if (!imported.ok) return
+
+    useStore.getState().importProject(imported.project, 'new')
+    expect(Object.keys(useStore.getState().workspace.projects)).toHaveLength(2)
+    expect(activeProjectState().name).toBe('Imported')
+
+    useStore
+      .getState()
+      .switchProject(
+        Object.values(useStore.getState().workspace.projects).find(
+          (project) => project.name !== 'Imported',
+        )!.id,
+      )
+    useStore.getState().importProject(imported.project, 'merge')
+    const merged = activeProjectState()
+    expect(Object.keys(merged.nodes)).toHaveLength(2)
+    expect(merged.nodes[kept.id]).toBeDefined()
   })
 
   it('creates a default project when storage is empty', () => {
