@@ -290,7 +290,7 @@ export function LineRow({ line, project }: Props) {
                             {node?.name ?? 'Missing stop'}
                           </button>
                           <span className="flex shrink-0 items-center gap-1 text-slate-400">
-                            {incoming && (
+                            {incoming ? (
                               <button
                                 type="button"
                                 title={legTitle(incoming)}
@@ -303,41 +303,47 @@ export function LineRow({ line, project }: Props) {
                                       : 'road',
                                   )
                                 }
-                                className={
+                                className={`w-3 ${
                                   incoming.mode === 'road'
                                     ? incoming.stale ||
                                       incoming.distanceM === undefined
                                       ? 'text-amber-500'
                                       : 'text-emerald-600'
                                     : 'hover:text-slate-900'
-                                }
+                                }`}
                               >
                                 {incoming.mode === 'road' ? '↝' : '╱'}
                               </button>
+                            ) : (
+                              <span className="w-3" />
                             )}
-                            {index > 0 && (
+                            {index > 0 ? (
                               <button
                                 type="button"
                                 title="Move earlier"
                                 onClick={() =>
                                   moveStop(line.id, chainIndex, index, -1)
                                 }
-                                className="hover:text-slate-900"
+                                className="w-3 hover:text-slate-900"
                               >
                                 ↑
                               </button>
+                            ) : (
+                              <span className="w-3" />
                             )}
-                            {index < chain.nodeIds.length - 1 && (
+                            {index < chain.nodeIds.length - 1 ? (
                               <button
                                 type="button"
                                 title="Move later"
                                 onClick={() =>
                                   moveStop(line.id, chainIndex, index, 1)
                                 }
-                                className="hover:text-slate-900"
+                                className="w-3 hover:text-slate-900"
                               >
                                 ↓
                               </button>
+                            ) : (
+                              <span className="w-3" />
                             )}
                             <button
                               type="button"
