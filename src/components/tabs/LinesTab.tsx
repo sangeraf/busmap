@@ -117,9 +117,11 @@ export function LinesTab({ project }: { project: Project }) {
         {connect && (
           <div className="flex items-center gap-2 rounded bg-blue-50 px-2 py-1.5 text-xs text-blue-800">
             <span className="min-w-0 flex-1">
-              {connect.anchorId
-                ? 'Click the next stop to connect.'
-                : 'Click the first stop of the chain.'}
+              {connect.bridgeId
+                ? 'Click the stops to insert, in order.'
+                : connect.anchorId
+                  ? 'Click the next stop to connect.'
+                  : 'Click the first stop of the chain.'}
             </span>
             <button
               type="button"

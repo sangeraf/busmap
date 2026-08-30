@@ -163,21 +163,32 @@ export function LineRow({ line, project }: Props) {
                       {chain.label} (detached part)
                     </span>
                   )}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      connecting
-                        ? stopConnecting()
-                        : startConnecting(line.id, chain.groupId)
-                    }
-                    className={`shrink-0 rounded px-2 py-1 text-[11px] ${
-                      connecting
-                        ? 'bg-blue-600 text-white'
-                        : 'border border-slate-300 text-slate-700'
-                    }`}
-                  >
-                    {connecting ? 'Click stops…' : 'Connect stops'}
-                  </button>
+                  {connecting ? (
+                    <button
+                      type="button"
+                      onClick={() => stopConnecting()}
+                      className="shrink-0 rounded bg-blue-600 px-2 py-1 text-[11px] text-white"
+                    >
+                      Click stops… (done)
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      title={
+                        chain.segments.length === 0
+                          ? 'Click stops on the map to start this branch'
+                          : 'Insert stops before the first one'
+                      }
+                      onClick={() =>
+                        startConnecting(line.id, chain.groupId, {
+                          bridgeId: chain.segments[0]?.id ?? null,
+                        })
+                      }
+                      className="shrink-0 rounded border border-slate-300 px-2 py-1 text-[11px] text-slate-700"
+                    >
+                      {chain.segments.length === 0 ? 'Add stops' : '+ at start'}
+                    </button>
+                  )}
                 </div>
 
                 {chain.nodeIds.length === 0 ? (
@@ -238,6 +249,23 @@ export function LineRow({ line, project }: Props) {
                                 </button>
                               </>
                             )}
+                            <button
+                              type="button"
+                              title={
+                                outgoing
+                                  ? 'Insert stops after this one'
+                                  : 'Continue the branch from this stop'
+                              }
+                              onClick={() =>
+                                startConnecting(line.id, chain.groupId, {
+                                  anchorId: nodeId,
+                                  bridgeId: outgoing?.id ?? null,
+                                })
+                              }
+                              className="hover:text-blue-600"
+                            >
+                              +
+                            </button>
                             <button
                               type="button"
                               title={

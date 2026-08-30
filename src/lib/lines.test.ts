@@ -7,6 +7,7 @@ import {
   createSegment,
   filterLines,
   lineChains,
+  insertStop,
   lineStopIds,
   removeChainStop,
   removeNodeFromLine,
@@ -84,6 +85,43 @@ describe('lineChains', () => {
 function nodeMap(nodes: MapNode[]): Record<string, MapNode> {
   return Object.fromEntries(nodes.map((node) => [node.id, node]))
 }
+
+describe('insertStop', () => {
+  it('splits a connection in two and keeps threading further stops', () => {
+    const nodes = stops(4)
+    const line = createLine({ name: '7' })
+    const groupId = line.groups[0].id
+    line.segments.push(createSegment(nodes[0], nodes[3], groupId))
+
+    const bridge = insertStop(
+      line,
+      line.segments[0].id,
+      nodes[1],
+      nodeMap(nodes),
+      'after',
+    )
+    expect(bridge).toBeTruthy()
+    insertStop(line, bridge!, nodes[2], nodeMap(nodes), 'after')
+
+    const chains = lineChains(line)
+    expect(chains).toHaveLength(1)
+    expect(chains[0].nodeIds).toEqual(nodes.map((node) => node.id))
+    expect(chains[0].segments[0].geometry).toEqual([
+      [nodes[0].lat, nodes[0].lng],
+      [nodes[1].lat, nodes[1].lng],
+    ])
+  })
+
+  it('prepends a stop before the first one', () => {
+    const nodes = stops(3)
+    const line = createLine({ name: '7' })
+    chained(line, nodes.slice(1), line.groups[0].id)
+
+    insertStop(line, line.segments[0].id, nodes[0], nodeMap(nodes), 'before')
+
+    expect(lineChains(line)[0].nodeIds).toEqual(nodes.map((node) => node.id))
+  })
+})
 
 describe('removing a stop from a line', () => {
   it('connects the neighbours of an inner stop', () => {

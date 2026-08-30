@@ -143,6 +143,42 @@ export function reorderSegment(
 }
 
 /**
+ * Put a stop into an existing connection: `X -> Y` becomes `X -> node -> Y`
+ * (`side: 'after'`) or `node -> X -> Y` (`side: 'before'`). Returns the
+ * connection the next inserted stop should split, so clicking stops in order
+ * keeps threading them into the chain.
+ */
+export function insertStop(
+  line: Line,
+  bridgeId: SegmentId,
+  node: MapNode,
+  nodes: Record<NodeId, MapNode>,
+  side: 'before' | 'after',
+): SegmentId | null {
+  const at = line.segments.findIndex((item) => item.id === bridgeId)
+  if (at < 0) return null
+  const bridge = line.segments[at]
+  const groupId = bridge.groupId ?? line.groups[0]?.id
+  if (!groupId) return null
+
+  if (side === 'before') {
+    const head = nodes[bridge.from]
+    if (!head) return null
+    const added = createSegment(node, head, groupId)
+    line.segments.splice(at, 0, added)
+    return added.id
+  }
+
+  const tail = nodes[bridge.to]
+  if (!tail) return null
+  const added = createSegment(node, tail, groupId)
+  bridge.to = node.id
+  restitchGeometry(bridge, nodes)
+  line.segments.splice(at + 1, 0, added)
+  return added.id
+}
+
+/**
  * Drop one stop from a chain and heal the gap: an inner stop's two
  * connections collapse into a single `previous -> next` one, an end stop just
  * takes its only connection with it. `incomingId`/`outgoingId` identify the

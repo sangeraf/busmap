@@ -19,6 +19,7 @@ import {
   createLine,
   createLineType,
   createSegment,
+  insertStop,
   removeChainStop,
   removeNodeFromLine,
   reorderSegment,
@@ -35,11 +36,16 @@ export type TabId = 'stops' | 'lines' | 'data'
 
 export type SaveState = 'idle' | 'saving' | 'saved'
 
-/** Active "click stops on the map to chain them" session. */
+/**
+ * Active "click stops on the map to chain them" session. When `bridgeId` is
+ * set the clicked stops are threaded into that connection instead of being
+ * appended, so the chain never breaks apart.
+ */
 export interface ConnectState {
   lineId: LineId
   groupId: GroupId
   anchorId: NodeId | null
+  bridgeId: SegmentId | null
 }
 
 interface StoreState {
@@ -77,7 +83,11 @@ interface StoreState {
   deleteLineType: (id: TypeId) => void
   addBranch: (lineId: LineId) => void
   renameBranch: (lineId: LineId, groupId: GroupId, label: string) => void
-  startConnecting: (lineId: LineId, groupId: GroupId) => void
+  startConnecting: (
+    lineId: LineId,
+    groupId: GroupId,
+    at?: { anchorId?: NodeId | null; bridgeId?: SegmentId | null },
+  ) => void
   stopConnecting: () => void
   connectTo: (nodeId: NodeId) => void
   removeSegment: (lineId: LineId, segmentId: SegmentId) => void
@@ -321,9 +331,14 @@ export const useStore = create<StoreState>((set, get) => {
         if (group && label.trim()) group.label = label.trim()
       }),
 
-    startConnecting: (lineId, groupId) =>
+    startConnecting: (lineId, groupId, at) =>
       set({
-        connect: { lineId, groupId, anchorId: null },
+        connect: {
+          lineId,
+          groupId,
+          anchorId: at?.anchorId ?? null,
+          bridgeId: at?.bridgeId ?? null,
+        },
         placementKind: null,
         selectedLineId: lineId,
       }),
@@ -331,27 +346,47 @@ export const useStore = create<StoreState>((set, get) => {
     stopConnecting: () => set({ connect: null }),
 
     /**
-     * Chains clicked nodes: the first click only anchors, every later click
-     * appends a directed segment from the previous node.
+     * Threads clicked nodes into the chain: with a `bridgeId` each click
+     * splits that connection in two, otherwise clicks append to the end (the
+     * very first click of an empty branch only anchors).
      */
     connectTo: (nodeId) => {
       const { connect } = get()
       if (!connect) return
-      const anchorId = connect.anchorId
-      if (!anchorId || anchorId === nodeId) {
+      const { anchorId, bridgeId } = connect
+      if (!bridgeId && (!anchorId || anchorId === nodeId)) {
         set({ connect: { ...connect, anchorId: nodeId } })
         return
       }
+
+      let nextBridgeId: SegmentId | null = null
       commit((workspace) => {
         const project = activeProject(workspace)
         const line = project?.lines[connect.lineId]
-        const from = project?.nodes[anchorId]
-        const to = project?.nodes[nodeId]
-        if (!project || !line || !from || !to) return
-        line.segments.push(createSegment(from, to, connect.groupId))
+        const node = project?.nodes[nodeId]
+        if (!project || !line || !node) return
+        if (bridgeId) {
+          nextBridgeId = insertStop(
+            line,
+            bridgeId,
+            node,
+            project.nodes,
+            anchorId ? 'after' : 'before',
+          )
+        } else {
+          const from = anchorId ? project.nodes[anchorId] : undefined
+          if (!from) return
+          line.segments.push(createSegment(from, node, connect.groupId))
+        }
         project.updatedAt = new Date().toISOString()
       })
-      set({ connect: { ...connect, anchorId: nodeId } })
+      set({
+        connect: {
+          ...connect,
+          anchorId: nodeId,
+          bridgeId: bridgeId ? nextBridgeId : null,
+        },
+      })
     },
 
     removeSegment: (lineId, segmentId) =>

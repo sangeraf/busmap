@@ -121,6 +121,57 @@ describe('workspace store', () => {
     ])
   })
 
+  it('inserts clicked stops into an existing connection', () => {
+    const store = useStore.getState()
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.51, 19.01)
+    const c = store.addNode('stop', 47.52, 19.02)
+    const d = store.addNode('stop', 47.53, 19.03)
+    const line = store.addLine({ name: '7' })
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectTo(a.id)
+    useStore.getState().connectTo(d.id)
+
+    const bridge = activeLine(line.id).segments[0]
+    useStore.getState().startConnecting(line.id, line.groups[0].id, {
+      anchorId: a.id,
+      bridgeId: bridge.id,
+    })
+    useStore.getState().connectTo(b.id)
+    useStore.getState().connectTo(c.id)
+
+    expect(
+      activeLine(line.id).segments.map((segment) => [segment.from, segment.to]),
+    ).toEqual([
+      [a.id, b.id],
+      [b.id, c.id],
+      [c.id, d.id],
+    ])
+  })
+
+  it('inserts stops before the first one of a branch', () => {
+    const store = useStore.getState()
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.51, 19.01)
+    const c = store.addNode('stop', 47.52, 19.02)
+    const line = store.addLine({ name: '7' })
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectTo(b.id)
+    useStore.getState().connectTo(c.id)
+
+    useStore.getState().startConnecting(line.id, line.groups[0].id, {
+      bridgeId: activeLine(line.id).segments[0].id,
+    })
+    useStore.getState().connectTo(a.id)
+
+    expect(
+      activeLine(line.id).segments.map((segment) => [segment.from, segment.to]),
+    ).toEqual([
+      [a.id, b.id],
+      [b.id, c.id],
+    ])
+  })
+
   it('reorders and removes connections', () => {
     const store = useStore.getState()
     const nodes = [
