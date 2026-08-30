@@ -28,8 +28,9 @@ npm run dev      # http://localhost:5173
 ## Deployment
 
 `.github/workflows/deploy.yml` builds `main` and publishes `dist/` to GitHub
-Pages at `https://<owner>.github.io/<repo>/`. Enable it once under
-*Settings → Pages → Build and deployment → Source: GitHub Actions*.
+Pages at `https://<owner>.github.io/<repo>/`. The workflow enables Pages itself
+(`configure-pages` with `enablement: true`), so no manual repo setting is
+needed.
 
 Pages serves the app from a subpath, so the workflow builds with
 `BASE_PATH=/<repo>/`; local builds default to `/`. For any other static host,
