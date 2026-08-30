@@ -4,6 +4,7 @@ import type { Project } from '../types'
 
 interface Props {
   project: Project
+  onShowShortcuts: () => void
 }
 
 const SAVE_LABEL = {
@@ -12,7 +13,10 @@ const SAVE_LABEL = {
   saved: 'Saved',
 } as const
 
-export function Header({ project }: Props) {
+export function Header({ project, onShowShortcuts }: Props) {
+  const history = useStore((s) => s.history)
+  const undo = useStore((s) => s.undo)
+  const redo = useStore((s) => s.redo)
   const workspace = useStore((s) => s.workspace)
   const saveState = useStore((s) => s.saveState)
   const switchProject = useStore((s) => s.switchProject)
@@ -68,6 +72,25 @@ export function Header({ project }: Props) {
       <div className="flex items-center gap-1 text-xs">
         <button
           type="button"
+          title="Undo (Ctrl+Z)"
+          disabled={history.past === 0}
+          onClick={undo}
+          className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent"
+        >
+          ↺ Undo
+        </button>
+        <button
+          type="button"
+          title="Redo (Ctrl+Shift+Z)"
+          disabled={history.future === 0}
+          onClick={redo}
+          className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent"
+        >
+          ↻ Redo
+        </button>
+        <span className="mx-1 h-4 w-px bg-slate-200" />
+        <button
+          type="button"
           className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100"
           onClick={() => {
             setDraftName(project.name)
@@ -96,7 +119,7 @@ export function Header({ project }: Props) {
           onClick={() => {
             if (
               window.confirm(
-                `Delete project "${project.name}"? This cannot be undone.`,
+                `Delete project "${project.name}"?`,
               )
             ) {
               deleteProject(project.id)
@@ -110,6 +133,14 @@ export function Header({ project }: Props) {
       <span className="ml-auto text-xs text-slate-400">
         {SAVE_LABEL[saveState]}
       </span>
+      <button
+        type="button"
+        onClick={onShowShortcuts}
+        title="Keyboard shortcuts (?)"
+        className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+      >
+        ⌨
+      </button>
     </header>
   )
 }

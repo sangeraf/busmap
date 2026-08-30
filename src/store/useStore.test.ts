@@ -426,4 +426,36 @@ describe('workspace store', () => {
     expect(project.center).toEqual([47.5, 19.05])
     expect(project.zoom).toBe(15)
   })
+
+  it('undoes and redoes edits without recording the map view', () => {
+    const store = useStore.getState()
+    const node = store.addNode('stop', 47.5, 19.0)
+    useStore.getState().updateNode(node.id, { name: 'Deák tér' })
+    useStore.getState().setMapView([47.6, 19.1], 14)
+
+    expect(useStore.getState().history.past).toBe(2)
+
+    useStore.getState().undo()
+    expect(activeProjectState().nodes[node.id].name).not.toBe('Deák tér')
+    expect(activeProjectState().center).toEqual([47.6, 19.1])
+
+    useStore.getState().undo()
+    expect(activeProjectState().nodes[node.id]).toBeUndefined()
+    expect(useStore.getState().history.past).toBe(0)
+
+    useStore.getState().redo()
+    useStore.getState().redo()
+    expect(activeProjectState().nodes[node.id].name).toBe('Deák tér')
+    expect(useStore.getState().history.future).toBe(0)
+  })
+
+  it('drops the redo stack once a new edit lands', () => {
+    const store = useStore.getState()
+    store.addNode('stop', 47.5, 19.0)
+    useStore.getState().undo()
+    expect(useStore.getState().history.future).toBe(1)
+
+    useStore.getState().addNode('waypoint', 47.4, 18.9)
+    expect(useStore.getState().history.future).toBe(0)
+  })
 })

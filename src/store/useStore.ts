@@ -16,6 +16,15 @@ import type {
 } from '../types'
 import { createProject, duplicateProject } from '../lib/project'
 import { mergeProjects } from '../lib/exchange'
+import {
+  ensureFolderAccess,
+  forgetSyncFolder,
+  loadSyncFolder,
+  pickSyncFolder,
+  readProjects,
+  writeProjects,
+  type SyncDirectoryHandle,
+} from '../lib/folderSync'
 import { createNode } from '../lib/nodes'
 import {
   applySegmentMode,
@@ -47,6 +56,21 @@ export type SaveState = 'idle' | 'saving' | 'saved'
 
 /** How an imported project lands: new entry, folded in, or overwriting. */
 export type ImportMode = 'new' | 'merge' | 'replace'
+
+/** State of the optional link to a folder on disk (Chrome/Edge only). */
+export interface FolderSyncState {
+  connected: boolean
+  name: string | null
+  lastSyncAt: string | null
+  busy: boolean
+  error: string | null
+}
+
+/** Undoable snapshots; routing results and view changes are not recorded. */
+export interface HistoryState {
+  past: number
+  future: number
+}
 
 /** Progress of the background OSRM requests. */
 export interface RoutingState {
@@ -80,7 +104,15 @@ interface StoreState {
   /** Mode used for connections created from now on. */
   defaultSegmentMode: SegmentMode
   routing: RoutingState
+  history: HistoryState
+  folder: FolderSyncState
   hydrate: () => Promise<void>
+  undo: () => void
+  redo: () => void
+  connectFolder: () => Promise<void>
+  disconnectFolder: () => Promise<void>
+  syncToFolder: () => Promise<void>
+  loadFromFolder: () => Promise<string[]>
   setActiveTab: (tab: TabId) => void
   setPlacementKind: (kind: NodeKind | null) => void
   setSelectedNode: (id: NodeId | null) => void
@@ -180,19 +212,101 @@ let routingRun: Promise<void> | null = null
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 
+const HISTORY_LIMIT = 50
+let past: Workspace[] = []
+let future: Workspace[] = []
+let folderHandle: SyncDirectoryHandle | null = null
+
 export const useStore = create<StoreState>((set, get) => {
   function persist(workspace: Workspace) {
     set({ saveState: 'saving' })
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
       void storage.save(workspace).then(() => set({ saveState: 'saved' }))
+      if (folderHandle) void syncFolder(false)
     }, 400)
   }
 
-  function commit(recipe: (workspace: Workspace) => void) {
-    const workspace = produce(get().workspace, recipe)
-    set({ workspace })
+  /**
+   * Edits are undoable by default; background results (routing) and view
+   * changes pass `history: false` so they never eat an undo step. Immer keeps
+   * the snapshots structurally shared, so the stack stays cheap at 10k stops.
+   */
+  function commit(
+    recipe: (workspace: Workspace) => void,
+    options: { history?: boolean } = {},
+  ) {
+    const previous = get().workspace
+    const workspace = produce(previous, recipe)
+    if (workspace === previous) return
+    if (options.history !== false) {
+      past.push(previous)
+      if (past.length > HISTORY_LIMIT) past.shift()
+      future = []
+    }
+    set({ workspace, history: { past: past.length, future: future.length } })
     persist(workspace)
+  }
+
+  /**
+   * Undo only rewinds the data: where the map is currently looking is kept,
+   * otherwise panning around would jump back with every step.
+   */
+  function restore(snapshot: Workspace) {
+    const current = get().workspace
+    const workspace = produce(snapshot, (draft) => {
+      for (const project of Object.values(draft.projects)) {
+        const live = current.projects[project.id]
+        if (!live) continue
+        project.center = live.center
+        project.zoom = live.zoom
+      }
+    })
+    set({
+      workspace,
+      history: { past: past.length, future: future.length },
+      connect: null,
+      placementKind: null,
+    })
+    persist(workspace)
+    void get().routeStaleSegments()
+  }
+
+  async function syncFolder(prompt: boolean) {
+    if (!folderHandle) return
+    set((state) => ({ folder: { ...state.folder, busy: true, error: null } }))
+    try {
+      if (!(await ensureFolderAccess(folderHandle, prompt))) {
+        set((state) => ({
+          folder: {
+            ...state.folder,
+            busy: false,
+            error: 'The folder needs permission again — press Sync now.',
+          },
+        }))
+        return
+      }
+      await writeProjects(
+        folderHandle,
+        Object.values(get().workspace.projects),
+      )
+      set((state) => ({
+        folder: {
+          ...state.folder,
+          busy: false,
+          error: null,
+          lastSyncAt: new Date().toISOString(),
+        },
+      }))
+    } catch (error) {
+      set((state) => ({
+        folder: {
+          ...state.folder,
+          busy: false,
+          error: error instanceof Error ? error.message : 'Folder sync failed.',
+        },
+      }))
+    }
   }
 
   async function routePending() {
@@ -236,7 +350,8 @@ export const useStore = create<StoreState>((set, get) => {
     const results = await mapWithConcurrency(
       targets.map((target) => async () => {
         const route = await routeBetween(target.ends[0], target.ends[1])
-        commit((workspace) => {
+        commit(
+          (workspace) => {
           const line = activeProject(workspace)?.lines[target.lineId]
           const segment = line?.segments.find(
             (item) => item.id === target.segmentId,
@@ -247,10 +362,12 @@ export const useStore = create<StoreState>((set, get) => {
             target.ends[0],
             target.ends[1],
           )
-          segment.distanceM = route.distanceM
-          segment.durationS = route.durationS
-          segment.stale = false
-        })
+            segment.distanceM = route.distanceM
+            segment.durationS = route.durationS
+            segment.stale = false
+          },
+          { history: false },
+        )
       }),
     )
 
@@ -280,16 +397,124 @@ export const useStore = create<StoreState>((set, get) => {
     connect: null,
     defaultSegmentMode: 'straight',
     routing: { pending: 0, failed: 0, error: null },
+    history: { past: 0, future: 0 },
+    folder: {
+      connected: false,
+      name: null,
+      lastSyncAt: null,
+      busy: false,
+      error: null,
+    },
 
     hydrate: async () => {
       if (get().hydrated) return
       await hydrateRouteCache()
       const loaded = await storage.load()
+      past = []
+      future = []
       set({
         workspace: withFallbackProject(loaded ?? emptyWorkspace()),
         hydrated: true,
+        history: { past: 0, future: 0 },
       })
+      folderHandle = await loadSyncFolder()
+      if (folderHandle) {
+        set((state) => ({
+          folder: {
+            ...state.folder,
+            connected: true,
+            name: folderHandle?.name ?? null,
+          },
+        }))
+      }
       void get().routeStaleSegments()
+    },
+
+    undo: () => {
+      const previous = past.pop()
+      if (!previous) return
+      future.push(get().workspace)
+      restore(previous)
+    },
+
+    redo: () => {
+      const next = future.pop()
+      if (!next) return
+      past.push(get().workspace)
+      restore(next)
+    },
+
+    connectFolder: async () => {
+      try {
+        folderHandle = await pickSyncFolder()
+      } catch {
+        return
+      }
+      set((state) => ({
+        folder: {
+          ...state.folder,
+          connected: true,
+          name: folderHandle?.name ?? null,
+          error: null,
+        },
+      }))
+      await syncFolder(true)
+    },
+
+    disconnectFolder: async () => {
+      folderHandle = null
+      await forgetSyncFolder()
+      set({
+        folder: {
+          connected: false,
+          name: null,
+          lastSyncAt: null,
+          busy: false,
+          error: null,
+        },
+      })
+    },
+
+    syncToFolder: () => syncFolder(true),
+
+    /** Pull every *.busmap.json back in, replacing same-id projects. */
+    loadFromFolder: async () => {
+      if (!folderHandle) return []
+      set((state) => ({ folder: { ...state.folder, busy: true, error: null } }))
+      try {
+        if (!(await ensureFolderAccess(folderHandle, true))) {
+          set((state) => ({
+            folder: {
+              ...state.folder,
+              busy: false,
+              error: 'The folder needs permission again.',
+            },
+          }))
+          return []
+        }
+        const { projects, warnings } = await readProjects(folderHandle)
+        commit((workspace) => {
+          for (const project of projects) {
+            workspace.projects[project.id] = project
+          }
+          if (!workspace.activeProjectId && projects[0]) {
+            workspace.activeProjectId = projects[0].id
+          }
+        })
+        set((state) => ({ folder: { ...state.folder, busy: false } }))
+        void get().routeStaleSegments()
+        return warnings
+      } catch (error) {
+        set((state) => ({
+          folder: {
+            ...state.folder,
+            busy: false,
+            error:
+              error instanceof Error ? error.message : 'Reading the folder failed.',
+          },
+        }))
+        return []
+      }
     },
 
     setActiveTab: (tab) => set({ activeTab: tab }),
@@ -690,13 +915,16 @@ export const useStore = create<StoreState>((set, get) => {
       }),
 
     setMapView: (center, zoom) =>
-      commit((workspace) => {
-        const id = workspace.activeProjectId
-        const project = id ? workspace.projects[id] : undefined
-        if (!project) return
-        project.center = center
-        project.zoom = zoom
-      }),
+      commit(
+        (workspace) => {
+          const id = workspace.activeProjectId
+          const project = id ? workspace.projects[id] : undefined
+          if (!project) return
+          project.center = center
+          project.zoom = zoom
+        },
+        { history: false },
+      ),
 
     updateActiveProject: (recipe) =>
       commit((workspace) => {
