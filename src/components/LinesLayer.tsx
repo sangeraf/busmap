@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import L from 'leaflet'
 import { Polyline, useMap, useMapEvents } from 'react-leaflet'
 import { useStore } from '../store/useStore'
-import type { LatLng, LineId, Project, Segment } from '../types'
+import type { LatLng, LineId, MapNode, Project, Segment } from '../types'
 
 interface DrawnLine {
   id: LineId
@@ -10,8 +10,27 @@ interface DrawnLine {
   positions: LatLng[][]
 }
 
-function intersects(segment: Segment, bounds: L.LatLngBounds): boolean {
-  return L.latLngBounds(segment.geometry).intersects(bounds)
+/**
+ * A segment awaiting its route has no geometry yet, so it falls back to the
+ * straight line between its stops instead of vanishing from the map.
+ */
+function geometryOf(
+  segment: Segment,
+  nodes: Record<string, MapNode>,
+): LatLng[] {
+  if (segment.geometry.length > 0) return segment.geometry
+  const from = nodes[segment.from]
+  const to = nodes[segment.to]
+  if (!from || !to) return []
+  return [
+    [from.lat, from.lng],
+    [to.lat, to.lng],
+  ]
+}
+
+function intersects(geometry: LatLng[], bounds: L.LatLngBounds): boolean {
+  if (geometry.length === 0) return false
+  return L.latLngBounds(geometry).intersects(bounds)
 }
 
 /** Segments outside the viewport are dropped before Leaflet ever sees them. */
@@ -31,11 +50,11 @@ function useDrawnLines(project: Project): DrawnLine[] {
           id: line.id,
           color: line.color,
           positions: line.segments
-            .filter((segment) => intersects(segment, bounds))
-            .map((segment) => segment.geometry),
+            .map((segment) => geometryOf(segment, project.nodes))
+            .filter((geometry) => intersects(geometry, bounds)),
         }))
         .filter((line) => line.positions.length > 0),
-    [project.lines, bounds],
+    [project.lines, project.nodes, bounds],
   )
 }
 
