@@ -1,6 +1,6 @@
-import Fuse from "fuse.js";
-import { createId } from "./id";
-import { distanceM } from "./nodes";
+import Fuse from 'fuse.js'
+import { createId } from './id'
+import { distanceM } from './nodes'
 import type {
   GroupId,
   LatLng,
@@ -13,46 +13,46 @@ import type {
   Segment,
   SegmentId,
   SegmentMode,
-} from "../types";
+} from '../types'
 
-export const LINE_COLOR = "#dc2626";
+export const LINE_COLOR = '#dc2626'
 
 /** Modes whose geometry comes from a router instead of the two stops. */
 export function isRouted(mode: SegmentMode): boolean {
-  return mode !== "straight";
+  return mode !== 'straight'
 }
 
 export function createLine(input: {
-  name: string;
-  description?: string;
-  color?: string;
-  typeId?: string | null;
+  name: string
+  description?: string
+  color?: string
+  typeId?: string | null
 }): Line {
-  const group: LineGroup = { id: createId("grp"), label: "Branch 1" };
+  const group: LineGroup = { id: createId('grp'), label: 'Branch 1' }
   return {
-    id: createId("lin"),
+    id: createId('lin'),
     name: input.name,
-    description: input.description ?? "",
+    description: input.description ?? '',
     color: input.color ?? LINE_COLOR,
     typeId: input.typeId ?? null,
     segments: [],
     groups: [group],
     createdAt: new Date().toISOString(),
-  };
+  }
 }
 
 export function createLineType(name: string): LineType {
-  return { id: createId("typ"), name };
+  return { id: createId('typ'), name }
 }
 
 export function createSegment(
   from: MapNode,
   to: MapNode,
   groupId: GroupId,
-  mode: SegmentMode = "straight",
+  mode: SegmentMode = 'straight',
 ): Segment {
   return {
-    id: createId("seg"),
+    id: createId('seg'),
     from: from.id,
     to: to.id,
     mode,
@@ -61,7 +61,7 @@ export function createSegment(
       [to.lat, to.lng],
     ],
     groupId,
-  };
+  }
 }
 
 /**
@@ -70,33 +70,33 @@ export function createSegment(
  * disconnected (`previous.to !== next.from`).
  */
 export interface Chain {
-  groupId: GroupId;
-  label: string;
-  segments: Segment[];
-  nodeIds: NodeId[];
+  groupId: GroupId
+  label: string
+  segments: Segment[]
+  nodeIds: NodeId[]
 }
 
 export function lineChains(line: Line): Chain[] {
-  const chains: Chain[] = [];
+  const chains: Chain[] = []
   for (const group of line.groups) {
     const segments = line.segments.filter(
       (segment) => (segment.groupId ?? line.groups[0]?.id) === group.id,
-    );
-    let current: Chain | null = null;
+    )
+    let current: Chain | null = null
     for (const segment of segments) {
       const continues =
-        current && current.nodeIds[current.nodeIds.length - 1] === segment.from;
+        current && current.nodeIds[current.nodeIds.length - 1] === segment.from
       if (!current || !continues) {
         current = {
           groupId: group.id,
           label: group.label,
           segments: [],
           nodeIds: [segment.from],
-        };
-        chains.push(current);
+        }
+        chains.push(current)
       }
-      current.segments.push(segment);
-      current.nodeIds.push(segment.to);
+      current.segments.push(segment)
+      current.nodeIds.push(segment.to)
     }
     if (segments.length === 0) {
       chains.push({
@@ -104,10 +104,10 @@ export function lineChains(line: Line): Chain[] {
         label: group.label,
         segments: [],
         nodeIds: [],
-      });
+      })
     }
   }
-  return chains;
+  return chains
 }
 
 /**
@@ -122,24 +122,23 @@ export function moveChainStop(
   delta: number,
   nodes: Record<NodeId, MapNode>,
 ): void {
-  const chain = lineChains(line)[chainIndex];
-  if (!chain) return;
+  const chain = lineChains(line)[chainIndex]
+  if (!chain) return
 
-  const target = stopIndex + delta;
-  if (stopIndex < 0 || stopIndex >= chain.nodeIds.length) return;
-  if (target < 0 || target >= chain.nodeIds.length) return;
+  const target = stopIndex + delta
+  if (stopIndex < 0 || stopIndex >= chain.nodeIds.length) return
+  if (target < 0 || target >= chain.nodeIds.length) return
 
-  const order = [...chain.nodeIds];
-  const [moved] = order.splice(stopIndex, 1);
-  order.splice(target, 0, moved);
+  const order = [...chain.nodeIds]
+  const [moved] = order.splice(stopIndex, 1)
+  order.splice(target, 0, moved)
 
   chain.segments.forEach((segment, index) => {
-    if (segment.from === order[index] && segment.to === order[index + 1])
-      return;
-    segment.from = order[index];
-    segment.to = order[index + 1];
-    restitchGeometry(segment, nodes);
-  });
+    if (segment.from === order[index] && segment.to === order[index + 1]) return
+    segment.from = order[index]
+    segment.to = order[index + 1]
+    restitchGeometry(segment, nodes)
+  })
 }
 
 /**
@@ -152,26 +151,26 @@ export function applySegmentMode(
   mode: SegmentMode,
   nodes: Record<NodeId, MapNode>,
 ): void {
-  if (segment.mode === mode) return;
-  segment.mode = mode;
+  if (segment.mode === mode) return
+  segment.mode = mode
   if (isRouted(mode)) {
-    segment.geometry = [];
-    segment.distanceM = undefined;
-    segment.durationS = undefined;
-    segment.stale = true;
-    return;
+    segment.geometry = []
+    segment.distanceM = undefined
+    segment.durationS = undefined
+    segment.stale = true
+    return
   }
-  const from = nodes[segment.from];
-  const to = nodes[segment.to];
+  const from = nodes[segment.from]
+  const to = nodes[segment.to]
   if (from && to) {
     segment.geometry = [
       [from.lat, from.lng],
       [to.lat, to.lng],
-    ];
+    ]
   }
-  segment.distanceM = undefined;
-  segment.durationS = undefined;
-  segment.stale = false;
+  segment.distanceM = undefined
+  segment.durationS = undefined
+  segment.stale = false
 }
 
 /**
@@ -186,33 +185,33 @@ export function insertStop(
   bridgeId: SegmentId,
   node: MapNode,
   nodes: Record<NodeId, MapNode>,
-  side: "before" | "after",
+  side: 'before' | 'after',
   mode: SegmentMode,
 ): SegmentId | null {
-  const at = line.segments.findIndex((item) => item.id === bridgeId);
-  if (at < 0) return null;
-  const bridge = line.segments[at];
-  const groupId = bridge.groupId ?? line.groups[0]?.id;
-  if (!groupId) return null;
+  const at = line.segments.findIndex((item) => item.id === bridgeId)
+  if (at < 0) return null
+  const bridge = line.segments[at]
+  const groupId = bridge.groupId ?? line.groups[0]?.id
+  if (!groupId) return null
 
-  if (side === "before") {
-    const head = nodes[bridge.from];
-    if (!head) return null;
-    const added = createSegment(node, head, groupId, mode);
-    if (isRouted(mode)) added.stale = true;
-    line.segments.splice(at, 0, added);
-    return added.id;
+  if (side === 'before') {
+    const head = nodes[bridge.from]
+    if (!head) return null
+    const added = createSegment(node, head, groupId, mode)
+    if (isRouted(mode)) added.stale = true
+    line.segments.splice(at, 0, added)
+    return added.id
   }
 
-  const tail = nodes[bridge.to];
-  if (!tail) return null;
-  const added = createSegment(node, tail, groupId, bridge.mode);
-  if (isRouted(bridge.mode)) added.stale = true;
-  bridge.to = node.id;
-  applySegmentMode(bridge, mode, nodes);
-  restitchGeometry(bridge, nodes);
-  line.segments.splice(at + 1, 0, added);
-  return added.id;
+  const tail = nodes[bridge.to]
+  if (!tail) return null
+  const added = createSegment(node, tail, groupId, bridge.mode)
+  if (isRouted(bridge.mode)) added.stale = true
+  bridge.to = node.id
+  applySegmentMode(bridge, mode, nodes)
+  restitchGeometry(bridge, nodes)
+  line.segments.splice(at + 1, 0, added)
+  return added.id
 }
 
 /**
@@ -225,37 +224,37 @@ export function mergeBranches(
   targetGroupId: GroupId,
   sourceGroupId: GroupId,
   nodes: Record<NodeId, MapNode>,
-  mode: SegmentMode = "straight",
+  mode: SegmentMode = 'straight',
 ): void {
-  if (targetGroupId === sourceGroupId) return;
-  const target = line.groups.find((group) => group.id === targetGroupId);
+  if (targetGroupId === sourceGroupId) return
+  const target = line.groups.find((group) => group.id === targetGroupId)
   if (!target || !line.groups.some((group) => group.id === sourceGroupId)) {
-    return;
+    return
   }
 
   const belongs = (segment: Segment, groupId: GroupId) =>
-    (segment.groupId ?? line.groups[0]?.id) === groupId;
-  const targetSegments = line.segments.filter((s) => belongs(s, targetGroupId));
-  const sourceSegments = line.segments.filter((s) => belongs(s, sourceGroupId));
+    (segment.groupId ?? line.groups[0]?.id) === groupId
+  const targetSegments = line.segments.filter((s) => belongs(s, targetGroupId))
+  const sourceSegments = line.segments.filter((s) => belongs(s, sourceGroupId))
 
-  const tail = nodes[targetSegments[targetSegments.length - 1]?.to ?? ""];
-  const head = nodes[sourceSegments[0]?.from ?? ""];
+  const tail = nodes[targetSegments[targetSegments.length - 1]?.to ?? '']
+  const head = nodes[sourceSegments[0]?.from ?? '']
   const joint =
     tail && head && tail.id !== head.id
       ? createSegment(tail, head, targetGroupId, mode)
-      : null;
-  if (joint && isRouted(mode)) joint.stale = true;
+      : null
+  if (joint && isRouted(mode)) joint.stale = true
 
-  for (const segment of sourceSegments) segment.groupId = targetGroupId;
+  for (const segment of sourceSegments) segment.groupId = targetGroupId
   const rest = line.segments.filter(
     (segment) => !sourceSegments.includes(segment),
-  );
+  )
   const at = targetSegments.length
     ? rest.indexOf(targetSegments[targetSegments.length - 1]) + 1
-    : rest.length;
-  rest.splice(at, 0, ...(joint ? [joint] : []), ...sourceSegments);
-  line.segments = rest;
-  line.groups = line.groups.filter((group) => group.id !== sourceGroupId);
+    : rest.length
+  rest.splice(at, 0, ...(joint ? [joint] : []), ...sourceSegments)
+  line.segments = rest
+  line.groups = line.groups.filter((group) => group.id !== sourceGroupId)
 }
 
 /**
@@ -268,28 +267,28 @@ export function splitBranch(
   atSegmentId: SegmentId,
   label?: string,
 ): GroupId | null {
-  const segment = line.segments.find((item) => item.id === atSegmentId);
-  if (!segment) return null;
-  const groupId = segment.groupId ?? line.groups[0]?.id;
-  const groupIndex = line.groups.findIndex((group) => group.id === groupId);
-  if (groupIndex < 0) return null;
+  const segment = line.segments.find((item) => item.id === atSegmentId)
+  if (!segment) return null
+  const groupId = segment.groupId ?? line.groups[0]?.id
+  const groupIndex = line.groups.findIndex((group) => group.id === groupId)
+  if (groupIndex < 0) return null
 
-  const group = line.groups[groupIndex];
+  const group = line.groups[groupIndex]
   const owned = line.segments.filter(
     (item) => (item.groupId ?? line.groups[0]?.id) === groupId,
-  );
-  const at = owned.indexOf(segment);
+  )
+  const at = owned.indexOf(segment)
   // Splitting at the very first stop would leave an empty branch behind.
-  if (at <= 0) return null;
+  if (at <= 0) return null
 
-  const moved = owned.slice(at);
+  const moved = owned.slice(at)
   const created: LineGroup = {
-    id: createId("grp"),
+    id: createId('grp'),
     label: label ?? `${group.label} (2)`,
-  };
-  for (const item of moved) item.groupId = created.id;
-  line.groups.splice(groupIndex + 1, 0, created);
-  return created.id;
+  }
+  for (const item of moved) item.groupId = created.id
+  line.groups.splice(groupIndex + 1, 0, created)
+  return created.id
 }
 
 /**
@@ -304,17 +303,17 @@ export function removeChainStop(
   outgoingId: SegmentId | null,
   nodes: Record<NodeId, MapNode>,
 ): void {
-  const incoming = line.segments.find((item) => item.id === incomingId);
-  const outgoing = line.segments.find((item) => item.id === outgoingId);
-  const dropped = incoming && outgoing ? outgoing : (incoming ?? outgoing);
-  if (!dropped) return;
+  const incoming = line.segments.find((item) => item.id === incomingId)
+  const outgoing = line.segments.find((item) => item.id === outgoingId)
+  const dropped = incoming && outgoing ? outgoing : (incoming ?? outgoing)
+  if (!dropped) return
 
   if (incoming && outgoing) {
-    incoming.to = outgoing.to;
-    if (isRouted(outgoing.mode)) incoming.mode = outgoing.mode;
-    restitchGeometry(incoming, nodes);
+    incoming.to = outgoing.to
+    if (isRouted(outgoing.mode)) incoming.mode = outgoing.mode
+    restitchGeometry(incoming, nodes)
   }
-  line.segments = line.segments.filter((item) => item.id !== dropped.id);
+  line.segments = line.segments.filter((item) => item.id !== dropped.id)
 }
 
 /** Remove every visit of a node from a line, healing each chain. */
@@ -326,51 +325,49 @@ export function removeNodeFromLine(
   const touches = () =>
     line.segments.some(
       (segment) => segment.from === nodeId || segment.to === nodeId,
-    );
+    )
   for (let guard = line.segments.length; touches() && guard >= 0; guard -= 1) {
-    const chain = lineChains(line).find((item) =>
-      item.nodeIds.includes(nodeId),
-    );
-    if (!chain) break;
-    const index = chain.nodeIds.indexOf(nodeId);
+    const chain = lineChains(line).find((item) => item.nodeIds.includes(nodeId))
+    if (!chain) break
+    const index = chain.nodeIds.indexOf(nodeId)
     removeChainStop(
       line,
       chain.segments[index - 1]?.id ?? null,
       chain.segments[index]?.id ?? null,
       nodes,
-    );
+    )
   }
   line.segments = line.segments.filter(
     (segment) => segment.from !== nodeId && segment.to !== nodeId,
-  );
+  )
 }
 
 function restitchGeometry(segment: Segment, nodes: Record<NodeId, MapNode>) {
   if (isRouted(segment.mode)) {
-    segment.stale = true;
-    return;
+    segment.stale = true
+    return
   }
-  const from = nodes[segment.from];
-  const to = nodes[segment.to];
-  if (!from || !to) return;
+  const from = nodes[segment.from]
+  const to = nodes[segment.to]
+  if (!from || !to) return
   segment.geometry = [
     [from.lat, from.lng],
     [to.lat, to.lng],
-  ];
+  ]
 }
 
 /** Distinct stops served by a line, in the order they first appear. */
 export function lineStopIds(line: Line): NodeId[] {
-  const seen = new Set<NodeId>();
-  const ordered: NodeId[] = [];
+  const seen = new Set<NodeId>()
+  const ordered: NodeId[] = []
   for (const chain of lineChains(line)) {
     for (const nodeId of chain.nodeIds) {
-      if (seen.has(nodeId)) continue;
-      seen.add(nodeId);
-      ordered.push(nodeId);
+      if (seen.has(nodeId)) continue
+      seen.add(nodeId)
+      ordered.push(nodeId)
     }
   }
-  return ordered;
+  return ordered
 }
 
 /** Length of one connection: its drawn geometry, straight otherwise. */
@@ -378,21 +375,21 @@ function segmentLengthM(
   segment: Segment,
   nodes: Record<NodeId, MapNode>,
 ): number {
-  const from = nodes[segment.from];
-  const to = nodes[segment.to];
+  const from = nodes[segment.from]
+  const to = nodes[segment.to]
   const straight: LatLng[] =
     from && to
       ? [
           [from.lat, from.lng],
           [to.lat, to.lng],
         ]
-      : [];
-  const points = segment.geometry.length > 1 ? segment.geometry : straight;
-  let total = 0;
+      : []
+  const points = segment.geometry.length > 1 ? segment.geometry : straight
+  let total = 0
   for (let index = 1; index < points.length; index += 1) {
-    total += distanceM(points[index - 1], points[index]);
+    total += distanceM(points[index - 1], points[index])
   }
-  return total;
+  return total
 }
 
 /** Total length of every connection of a line, across all branches. */
@@ -403,12 +400,12 @@ export function lineLengthM(
   return line.segments.reduce(
     (total, segment) => total + segmentLengthM(segment, nodes),
     0,
-  );
+  )
 }
 
 export function formatLengthM(meters: number): string {
-  if (meters < 2000) return `${Math.round(meters)} m`;
-  return `${(meters / 1000).toFixed(1)} km`;
+  if (meters < 2000) return `${Math.round(meters)} m`
+  return `${(meters / 1000).toFixed(1)} km`
 }
 
 /** nodeId -> lines serving it, for the Stops tab and node deletion. */
@@ -417,35 +414,35 @@ export function linesForNode(project: Project, nodeId: NodeId): Line[] {
     line.segments.some(
       (segment) => segment.from === nodeId || segment.to === nodeId,
     ),
-  );
+  )
 }
 
-export type LineSort = "name" | "created" | "stops";
+export type LineSort = 'name' | 'created' | 'stops'
 
 export interface LineFilters {
-  query: string;
+  query: string
   /** 'all', 'none' for untyped lines, or a type id. */
-  typeId: string;
-  sort: LineSort;
+  typeId: string
+  sort: LineSort
 }
 
 export const DEFAULT_LINE_FILTERS: LineFilters = {
-  query: "",
-  typeId: "all",
-  sort: "name",
-};
+  query: '',
+  typeId: 'all',
+  sort: 'name',
+}
 
 const collator = new Intl.Collator(undefined, {
   numeric: true,
-  sensitivity: "base",
-});
+  sensitivity: 'base',
+})
 
 export function createLineFuse(lines: Line[]): Fuse<Line> {
   return new Fuse(lines, {
-    keys: ["name", "description"],
+    keys: ['name', 'description'],
     threshold: 0.35,
     ignoreLocation: true,
-  });
+  })
 }
 
 export function filterLines(
@@ -453,27 +450,27 @@ export function filterLines(
   filters: LineFilters,
   fuse: Fuse<Line>,
 ): Line[] {
-  const query = filters.query.trim();
-  let result = query ? fuse.search(query).map((hit) => hit.item) : lines;
+  const query = filters.query.trim()
+  let result = query ? fuse.search(query).map((hit) => hit.item) : lines
 
-  if (filters.typeId === "none") {
-    result = result.filter((line) => !line.typeId);
-  } else if (filters.typeId !== "all") {
-    result = result.filter((line) => line.typeId === filters.typeId);
+  if (filters.typeId === 'none') {
+    result = result.filter((line) => !line.typeId)
+  } else if (filters.typeId !== 'all') {
+    result = result.filter((line) => line.typeId === filters.typeId)
   }
-  if (query) return result;
+  if (query) return result
 
-  const sorted = [...result];
+  const sorted = [...result]
   switch (filters.sort) {
-    case "name":
-      sorted.sort((a, b) => collator.compare(a.name, b.name));
-      break;
-    case "created":
-      sorted.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      break;
-    case "stops":
-      sorted.sort((a, b) => lineStopIds(b).length - lineStopIds(a).length);
-      break;
+    case 'name':
+      sorted.sort((a, b) => collator.compare(a.name, b.name))
+      break
+    case 'created':
+      sorted.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      break
+    case 'stops':
+      sorted.sort((a, b) => lineStopIds(b).length - lineStopIds(a).length)
+      break
   }
-  return sorted;
+  return sorted
 }
