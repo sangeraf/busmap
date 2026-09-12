@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useStore } from '../store/useStore'
 import type { Project } from '../types'
 
 interface Props {
@@ -8,6 +9,8 @@ interface Props {
 
 /** Lines grouped by their project type, so the map reads on its own. */
 export function Legend({ project, onClose }: Props) {
+  const railOverlay = useStore((s) => s.railOverlay)
+  const setRailOverlay = useStore((s) => s.setRailOverlay)
   const groups = useMemo(() => {
     const byType = new Map<string, { name: string; color: string }[]>()
     for (const line of Object.values(project.lines)) {
@@ -46,6 +49,14 @@ export function Legend({ project, onClose }: Props) {
           <span className="inline-block h-2 w-2 rotate-45 border border-slate-500 bg-white" />
           Waypoint
         </div>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={railOverlay}
+            onChange={(event) => setRailOverlay(event.target.checked)}
+          />
+          Rail tracks (OpenRailwayMap)
+        </label>
       </div>
 
       {groups.length === 0 ? (

@@ -1,6 +1,7 @@
 import polyline from '@mapbox/polyline'
 import { decodeGeometry, encodeGeometry } from './serialize'
-import type { LatLng } from '../types'
+import { railRoute } from './rail'
+import type { LatLng, SegmentMode } from '../types'
 
 export const OSRM_URL = 'https://router.project-osrm.org/route/v1/driving'
 
@@ -11,7 +12,8 @@ const RETRIES = 2
 export interface RouteResult {
   geometry: LatLng[]
   distanceM: number
-  durationS: number
+  /** Rail routes have no speed model, so only road legs carry a duration. */
+  durationS?: number
 }
 
 interface OsrmRoute {
@@ -29,11 +31,17 @@ interface OsrmResponse {
 /**
  * Cache key of a road leg. Coordinates are rounded to ~1 m so that a stop
  * nudged by a pixel still hits the cache, and both directions are kept
- * separately because one-way streets make them differ.
+ * separately because one-way streets make them differ. Road legs keep their
+ * unprefixed key so caches written before rail existed still hit.
  */
-export function routeKey(from: LatLng, to: LatLng): string {
+export function routeKey(
+  from: LatLng,
+  to: LatLng,
+  mode: SegmentMode = 'road',
+): string {
   const round = (value: number) => value.toFixed(5)
-  return `${round(from[0])},${round(from[1])};${round(to[0])},${round(to[1])}`
+  const prefix = mode === 'road' ? '' : `${mode}:`
+  return `${prefix}${round(from[0])},${round(from[1])};${round(to[0])},${round(to[1])}`
 }
 
 /**
@@ -97,7 +105,7 @@ async function requestRoute(
 export interface CachedRoute {
   geometry: string
   distanceM: number
-  durationS: number
+  durationS?: number
 }
 
 export interface RouteCacheBackend {
@@ -164,20 +172,25 @@ function writeCache(key: string, result: RouteResult) {
 
 const inFlight = new Map<string, Promise<RouteResult>>()
 
-/** Cached, de-duplicated driving route between two points. */
+/** Cached, de-duplicated route between two points, by road or by rail. */
 export async function routeBetween(
   from: LatLng,
   to: LatLng,
+  mode: SegmentMode = 'road',
   signal?: AbortSignal,
 ): Promise<RouteResult> {
-  const key = routeKey(from, to)
+  const key = routeKey(from, to, mode)
   const cached = readCache(key)
   if (cached) return cached
 
   const running = inFlight.get(key)
   if (running) return running
 
-  const request = requestRoute(from, to, signal)
+  const request = (
+    mode === 'rail'
+      ? railRoute(from, to, signal)
+      : requestRoute(from, to, signal)
+  )
     .then((result) => {
       writeCache(key, result)
       return result

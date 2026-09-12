@@ -9,17 +9,41 @@ import {
 import { ColorPicker } from './ColorPicker'
 import { LineTypeSelect } from './LineTypeSelect'
 import { NodeInfo } from './NodeInfo'
-import type { Line, Project, Segment } from '../types'
+import type { Line, Project, Segment, SegmentMode } from '../types'
 
-/** Tooltip of the straight/road toggle, with the routed length if known. */
+/** The toggle cycles through the three ways of drawing a connection. */
+const NEXT_MODE: Record<SegmentMode, SegmentMode> = {
+  straight: 'road',
+  road: 'rail',
+  rail: 'straight',
+}
+
+const MODE_GLYPH: Record<SegmentMode, string> = {
+  straight: '╱',
+  road: '↝',
+  rail: '╫',
+}
+
+const NEXT_LABEL: Record<SegmentMode, string> = {
+  straight: 'roads',
+  road: 'rails',
+  rail: 'a straight line',
+}
+
+/** Tooltip of the mode toggle, with the routed length if known. */
 function legTitle(segment: Segment): string {
-  if (segment.mode !== 'road') return 'Straight line — switch to roads'
+  const next = `switch to ${NEXT_LABEL[segment.mode]}`
+  if (segment.mode === 'straight') return `Straight line — ${next}`
+  const label = segment.mode === 'road' ? 'Via roads' : 'Via rails'
   if (segment.stale || segment.distanceM === undefined) {
-    return 'Via roads — waiting for a route'
+    return `${label} — waiting for a route`
   }
   const km = (segment.distanceM / 1000).toFixed(1)
-  const min = Math.round((segment.durationS ?? 0) / 60)
-  return `Via roads — ${km} km, ${min} min — switch to a straight line`
+  const duration =
+    segment.durationS === undefined
+      ? ''
+      : `, ${Math.round(segment.durationS / 60)} min`
+  return `${label} — ${km} km${duration} — ${next}`
 }
 
 interface Props {
@@ -118,6 +142,14 @@ export function LineRow({ line, project }: Props) {
               className="text-slate-600 hover:underline"
             >
               All via roads
+            </button>
+            <button
+              type="button"
+              title="Route every connection of this line along rail tracks"
+              onClick={() => setLineMode(line.id, 'rail')}
+              className="text-slate-600 hover:underline"
+            >
+              All via rails
             </button>
             <button
               type="button"
@@ -304,13 +336,11 @@ export function LineRow({ line, project }: Props) {
                                   setSegmentMode(
                                     line.id,
                                     incoming.id,
-                                    incoming.mode === 'road'
-                                      ? 'straight'
-                                      : 'road',
+                                    NEXT_MODE[incoming.mode],
                                   )
                                 }
                                 className={`w-3 ${
-                                  incoming.mode === 'road'
+                                  incoming.mode !== 'straight'
                                     ? incoming.stale ||
                                       incoming.distanceM === undefined
                                       ? 'text-amber-500'
@@ -318,7 +348,7 @@ export function LineRow({ line, project }: Props) {
                                     : 'hover:text-slate-900'
                                 }`}
                               >
-                                {incoming.mode === 'road' ? '↝' : '╱'}
+                                {MODE_GLYPH[incoming.mode]}
                               </button>
                             ) : (
                               <span className="w-3" />

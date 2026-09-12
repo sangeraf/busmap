@@ -120,6 +120,29 @@ export const recentColorsStorage = {
   },
 }
 
+const RAIL_OVERLAY_KEY = 'busmap.railOverlay'
+
+/** Whether the OpenRailwayMap overlay is shown, kept across reloads. */
+export const railOverlayStorage = {
+  async load(): Promise<boolean> {
+    if (typeof indexedDB === 'undefined') return false
+    try {
+      return (await idbGet<boolean>(RAIL_OVERLAY_KEY)) === true
+    } catch (error) {
+      console.error('Failed to read the rail overlay setting', error)
+      return false
+    }
+  },
+  async save(visible: boolean): Promise<void> {
+    if (typeof indexedDB === 'undefined') return
+    try {
+      await idbSet(RAIL_OVERLAY_KEY, visible)
+    } catch (error) {
+      console.error('Failed to persist the rail overlay setting', error)
+    }
+  },
+}
+
 export function emptyWorkspace(): Workspace {
   return { schemaVersion: SCHEMA_VERSION, activeProjectId: null, projects: {} }
 }

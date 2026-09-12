@@ -39,6 +39,7 @@ function MapEvents({ onViewChange }: { onViewChange: Props['onViewChange'] }) {
 export function MapView({ project, onViewChange }: Props) {
   const placementKind = useStore((s) => s.placementKind)
   const connect = useStore((s) => s.connect)
+  const railOverlay = useStore((s) => s.railOverlay)
 
   return (
     <MapContainer
@@ -55,6 +56,14 @@ export function MapView({ project, onViewChange }: Props) {
         url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         maxZoom={19}
       />
+      {railOverlay && (
+        <TileLayer
+          attribution='Rail tracks &copy; <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a>'
+          url="https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png"
+          maxZoom={19}
+          opacity={0.85}
+        />
+      )}
       <MapEvents onViewChange={onViewChange} />
       <LinesLayer project={project} />
       <NodesLayer project={project} />

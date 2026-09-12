@@ -17,6 +17,11 @@ import type {
 
 export const LINE_COLOR = '#dc2626'
 
+/** Modes whose geometry comes from a router instead of the two stops. */
+export function isRouted(mode: SegmentMode): boolean {
+  return mode !== 'straight'
+}
+
 export function createLine(input: {
   name: string
   description?: string
@@ -137,8 +142,9 @@ export function moveChainStop(
 }
 
 /**
- * Switch a connection between a straight line and a road route. Roads are
- * only marked stale here; the geometry is filled in by the router.
+ * Switch a connection between a straight line, a road route and a rail route.
+ * Routed modes are only marked stale here; the geometry is filled in by the
+ * router.
  */
 export function applySegmentMode(
   segment: Segment,
@@ -147,7 +153,10 @@ export function applySegmentMode(
 ): void {
   if (segment.mode === mode) return
   segment.mode = mode
-  if (mode === 'road') {
+  if (isRouted(mode)) {
+    segment.geometry = []
+    segment.distanceM = undefined
+    segment.durationS = undefined
     segment.stale = true
     return
   }
@@ -189,7 +198,7 @@ export function insertStop(
     const head = nodes[bridge.from]
     if (!head) return null
     const added = createSegment(node, head, groupId, mode)
-    if (mode === 'road') added.stale = true
+    if (isRouted(mode)) added.stale = true
     line.segments.splice(at, 0, added)
     return added.id
   }
@@ -197,7 +206,7 @@ export function insertStop(
   const tail = nodes[bridge.to]
   if (!tail) return null
   const added = createSegment(node, tail, groupId, bridge.mode)
-  if (bridge.mode === 'road') added.stale = true
+  if (isRouted(bridge.mode)) added.stale = true
   bridge.to = node.id
   applySegmentMode(bridge, mode, nodes)
   restitchGeometry(bridge, nodes)
@@ -224,7 +233,7 @@ export function removeChainStop(
 
   if (incoming && outgoing) {
     incoming.to = outgoing.to
-    if (outgoing.mode === 'road') incoming.mode = 'road'
+    if (isRouted(outgoing.mode)) incoming.mode = outgoing.mode
     restitchGeometry(incoming, nodes)
   }
   line.segments = line.segments.filter((item) => item.id !== dropped.id)
@@ -257,7 +266,7 @@ export function removeNodeFromLine(
 }
 
 function restitchGeometry(segment: Segment, nodes: Record<NodeId, MapNode>) {
-  if (segment.mode === 'road') {
+  if (isRouted(segment.mode)) {
     segment.stale = true
     return
   }
