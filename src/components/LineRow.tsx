@@ -238,6 +238,7 @@ export function LineRow({ line, project }: Props) {
                         renameBranch(line.id, chain.groupId, event.target.value)
                       }
                       placeholder="Branch name"
+                      title="Named after its first and last stop until you type a name; clear it to get that back"
                       className="min-w-0 flex-1 rounded border border-transparent px-1 py-0.5 text-xs font-medium text-slate-700 hover:border-slate-300"
                     />
                   ) : (

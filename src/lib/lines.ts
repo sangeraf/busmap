@@ -64,6 +64,54 @@ export function createSegment(
   }
 }
 
+function groupSegments(line: Line, groupId: GroupId): Segment[] {
+  return line.segments.filter(
+    (segment) => (segment.groupId ?? line.groups[0]?.id) === groupId,
+  )
+}
+
+/** The "first stop -> last stop" name a branch carries while unnamed. */
+export function autoBranchLabel(
+  line: Line,
+  group: LineGroup,
+  nodes: Record<NodeId, MapNode>,
+  index = line.groups.indexOf(group),
+): string {
+  const segments = groupSegments(line, group.id)
+  const from = nodes[segments[0]?.from ?? '']
+  const to = nodes[segments[segments.length - 1]?.to ?? '']
+  if (!from || !to) return `Branch ${index + 1}`
+  return `${from.name} -> ${to.name}`
+}
+
+/** Re-derive the name of every branch that was not named by hand. */
+export function refreshBranchLabels(
+  line: Line,
+  nodes: Record<NodeId, MapNode>,
+): void {
+  line.groups.forEach((group, index) => {
+    if (group.renamed) return
+    const label = autoBranchLabel(line, group, nodes, index)
+    if (group.label !== label) group.label = label
+  })
+}
+
+/**
+ * Decide for branches coming from a file whether their name was typed by a
+ * person: one that already matches its stops keeps following them.
+ */
+export function adoptBranchLabels(
+  line: Line,
+  nodes: Record<NodeId, MapNode>,
+): void {
+  line.groups.forEach((group, index) => {
+    if (group.renamed !== undefined) return
+    group.renamed =
+      group.label.trim().length > 0 &&
+      group.label !== autoBranchLabel(line, group, nodes, index)
+  })
+}
+
 /**
  * A run of segments that actually connect end-to-end. A branch can hold
  * several of them because segments are added manually and are allowed to be
@@ -282,9 +330,11 @@ export function splitBranch(
   if (at <= 0) return null
 
   const moved = owned.slice(at)
+  const named = label ?? (group.renamed ? `${group.label} (2)` : null)
   const created: LineGroup = {
     id: createId('grp'),
-    label: label ?? `${group.label} (2)`,
+    label: named ?? '',
+    ...(named === null ? {} : { renamed: true }),
   }
   for (const item of moved) item.groupId = created.id
   line.groups.splice(groupIndex + 1, 0, created)

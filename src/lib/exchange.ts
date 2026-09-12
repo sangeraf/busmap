@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { createId } from './id'
 import { decodeGeometry, encodeGeometry } from './serialize'
 import { DEFAULT_CENTER, DEFAULT_ZOOM } from './project'
-import { isRouted } from './lines'
+import { adoptBranchLabels, isRouted, refreshBranchLabels } from './lines'
 import { SCHEMA_VERSION } from '../types'
 import type {
   LatLng,
@@ -52,7 +52,13 @@ const lineSchema = z.object({
   typeId: z.string().nullish(),
   segments: z.array(segmentSchema).default([]),
   groups: z
-    .array(z.object({ id: z.string(), label: z.string().default('Branch') }))
+    .array(
+      z.object({
+        id: z.string(),
+        label: z.string().default(''),
+        renamed: z.boolean().optional(),
+      }),
+    )
     .default([]),
   createdAt: z.string().optional(),
 })
@@ -210,7 +216,7 @@ function buildProject(
     const id = line.id ?? key
     const groups = line.groups.length
       ? line.groups
-      : [{ id: createId('grp'), label: 'Branch 1' }]
+      : [{ id: createId('grp'), label: '' }]
     const segments: Segment[] = []
     for (const segment of line.segments) {
       if (!nodes[segment.from] || !nodes[segment.to]) {
@@ -264,6 +270,8 @@ function buildProject(
       groups,
       createdAt: line.createdAt ?? now,
     }
+    adoptBranchLabels(lines[id], nodes)
+    refreshBranchLabels(lines[id], nodes)
   }
 
   return {

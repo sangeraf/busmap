@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { createNode, distanceM } from './nodes'
 import {
   DEFAULT_LINE_FILTERS,
+  adoptBranchLabels,
+  refreshBranchLabels,
   createLine,
   createLineFuse,
   createSegment,
@@ -164,6 +166,34 @@ describe('splitBranch', () => {
 
     expect(splitBranch(line, line.segments[0].id)).toBeNull()
     expect(line.groups).toHaveLength(1)
+  })
+})
+
+describe('branch labels', () => {
+  it('names the halves of a split after their own stops', () => {
+    const nodes = stops(4)
+    const line = createLine({ name: '7' })
+    chained(line, nodes, line.groups[0].id)
+
+    splitBranch(line, line.segments[2].id)
+    refreshBranchLabels(line, nodeMap(nodes))
+
+    expect(line.groups.map((group) => group.label)).toEqual([
+      `${nodes[0].name} -> ${nodes[2].name}`,
+      `${nodes[2].name} -> ${nodes[3].name}`,
+    ])
+  })
+
+  it('keeps a name from a file only when it does not match the stops', () => {
+    const nodes = stops(3)
+    const line = createLine({ name: '7' })
+    chained(line, nodes, line.groups[0].id)
+    line.groups.push({ id: 'grp-2', label: 'Night service' })
+    line.groups[0].label = `${nodes[0].name} -> ${nodes[2].name}`
+
+    adoptBranchLabels(line, nodeMap(nodes))
+
+    expect(line.groups.map((group) => group.renamed)).toEqual([false, true])
   })
 })
 

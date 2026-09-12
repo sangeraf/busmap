@@ -44,6 +44,8 @@ export interface Segment {
 export interface LineGroup {
   id: GroupId
   label: string
+  /** A name typed by hand; otherwise the label follows the branch's stops. */
+  renamed?: boolean
 }
 
 export interface Line {
