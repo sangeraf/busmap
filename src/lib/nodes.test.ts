@@ -3,6 +3,7 @@ import { generateNetwork } from './fixtures'
 import {
   DEFAULT_NODE_FILTERS,
   buildNodeLineIndex,
+  buildNodeLineNames,
   createNode,
   createNodeFuse,
   filterNodes,
@@ -12,16 +13,21 @@ import type { MapNode } from '../types'
 
 function setup() {
   const project = generateNetwork(40, 2)
-  const orphan = createNode('waypoint', 47.5, 19.05, 1)
+  const orphan = createNode('stop', 47.5, 19.05, 1)
   orphan.name = 'Depot entrance'
   project.nodes[orphan.id] = orphan
+  const waypoint = createNode('waypoint', 47.5, 19.06, 2)
+  waypoint.name = 'Depot curve'
+  project.nodes[waypoint.id] = waypoint
   const nodes: MapNode[] = Object.values(project.nodes)
+  const lineIndex = buildNodeLineIndex(project)
   return {
     project,
     nodes,
     orphan,
-    lineIndex: buildNodeLineIndex(project),
-    fuse: createNodeFuse(nodes),
+    waypoint,
+    lineIndex,
+    fuse: createNodeFuse(nodes, buildNodeLineNames(project, lineIndex)),
   }
 }
 
@@ -37,16 +43,35 @@ describe('node filtering', () => {
     expect(result.map((node) => node.name)).toContain('Depot entrance')
   })
 
-  it('filters by kind and connectivity', () => {
-    const { nodes, lineIndex, fuse, orphan } = setup()
-    const waypoints = filterNodes(
+  it('leaves waypoints out of the list and of searches', () => {
+    const { nodes, lineIndex, fuse, waypoint } = setup()
+    const all = filterNodes(nodes, DEFAULT_NODE_FILTERS, lineIndex, fuse)
+    expect(all).not.toContain(waypoint)
+
+    const searched = filterNodes(
       nodes,
-      { ...DEFAULT_NODE_FILTERS, kind: 'waypoint' },
+      { ...DEFAULT_NODE_FILTERS, query: 'depot curve' },
       lineIndex,
       fuse,
     )
-    expect(waypoints).toEqual([orphan])
+    expect(searched).not.toContain(waypoint)
+  })
 
+  it('finds the stops a named line calls at', () => {
+    const { project, nodes, lineIndex, fuse } = setup()
+    const line = Object.values(project.lines)[0]
+    const result = filterNodes(
+      nodes,
+      { ...DEFAULT_NODE_FILTERS, query: line.name },
+      lineIndex,
+      fuse,
+    )
+    const served = new Set(result.map((node) => node.id))
+    expect(served.has(line.segments[0].from)).toBe(true)
+  })
+
+  it('filters by connectivity', () => {
+    const { nodes, lineIndex, fuse, orphan } = setup()
     const unconnected = filterNodes(
       nodes,
       { ...DEFAULT_NODE_FILTERS, onlyUnconnected: true },

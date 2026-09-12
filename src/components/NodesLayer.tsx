@@ -3,6 +3,7 @@ import L from 'leaflet'
 import { CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import { NodeInfo } from './NodeInfo'
 import { useStore } from '../store/useStore'
+import { connectedNodeIds, isNodeVisible } from '../lib/visibility'
 import type { MapNode, Project } from '../types'
 
 const SELECTED_ICON = L.divIcon({
@@ -52,9 +53,15 @@ export function NodesLayer({ project }: { project: Project }) {
   const updateNode = useStore((s) => s.updateNode)
   const connect = useStore((s) => s.connect)
   const connectTo = useStore((s) => s.connectTo)
+  const visibility = useStore((s) => s.visibility)
 
-  const nodes = useMemo(() => Object.values(project.nodes), [project.nodes])
-  const visible = useVisibleNodes(nodes)
+  const shown = useMemo(() => {
+    const connected = connectedNodeIds(project, visibility.hiddenTypes)
+    return Object.values(project.nodes).filter((node) =>
+      isNodeVisible(node, visibility, connected),
+    )
+  }, [project, visibility])
+  const visible = useVisibleNodes(shown)
   const selectedNode = selectedNodeId ? project.nodes[selectedNodeId] : undefined
   useRevealSelected(selectedNode)
 

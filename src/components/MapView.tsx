@@ -15,6 +15,7 @@ function MapEvents({ onViewChange }: { onViewChange: Props['onViewChange'] }) {
   const connecting = useStore((s) => s.connect !== null)
   const addNode = useStore((s) => s.addNode)
   const connectAt = useStore((s) => s.connectAt)
+  const clearFocus = useStore((s) => s.clearFocus)
 
   useMapEvents({
     moveend(event) {
@@ -28,7 +29,11 @@ function MapEvents({ onViewChange }: { onViewChange: Props['onViewChange'] }) {
         connectAt(event.latlng.lat, event.latlng.lng)
         return
       }
-      if (!placementKind) return
+      if (!placementKind) {
+        // An idle click on the map drops what is selected, as Escape does.
+        clearFocus()
+        return
+      }
       // Placement stays armed so a row of stops can be clicked out in one go.
       addNode(placementKind, event.latlng.lat, event.latlng.lng)
     },

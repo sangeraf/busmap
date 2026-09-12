@@ -4,6 +4,7 @@ import { useStore } from '../../store/useStore'
 import {
   DEFAULT_NODE_FILTERS,
   buildNodeLineIndex,
+  buildNodeLineNames,
   createNodeFuse,
   filterNodes,
   type NodeFilters,
@@ -14,7 +15,7 @@ import { NodeRow } from '../NodeRow'
 export function StopsTab({ project }: { project: Project }) {
   const placementKind = useStore((s) => s.placementKind)
   const setPlacementKind = useStore((s) => s.setPlacementKind)
-  const editingNodeId = useStore((s) => s.editingNodeId)
+  const expandedNodeId = useStore((s) => s.expandedNodeId)
   const [filters, setFilters] = useState<NodeFilters>(DEFAULT_NODE_FILTERS)
   const listRef = useRef<VListHandle>(null)
   const revealed = useRef<NodeId | null>(null)
@@ -24,28 +25,40 @@ export function StopsTab({ project }: { project: Project }) {
     [project.nodes],
   )
   const lineIndex = useMemo(() => buildNodeLineIndex(project), [project])
-  const fuse = useMemo(() => createNodeFuse(nodes), [nodes])
+  const lineNames = useMemo(
+    () => buildNodeLineNames(project, lineIndex),
+    [project, lineIndex],
+  )
+  const fuse = useMemo(
+    () => createNodeFuse(nodes, lineNames),
+    [nodes, lineNames],
+  )
+  const stopCount = useMemo(
+    () => nodes.filter((node) => node.kind === 'stop').length,
+    [nodes],
+  )
   const visible = useMemo(() => {
     const matching = filterNodes(nodes, filters, lineIndex, fuse)
-    const opened = editingNodeId ? project.nodes[editingNodeId] : undefined
-    // A stop opened from the map is listed even when the filters hide it.
+    const opened = expandedNodeId ? project.nodes[expandedNodeId] : undefined
+    // A node opened from the map is listed even when the filters hide it —
+    // this is the only way a waypoint reaches the list.
     return opened && !matching.some((node) => node.id === opened.id)
       ? [opened, ...matching]
       : matching
-  }, [nodes, filters, lineIndex, fuse, editingNodeId, project.nodes])
+  }, [nodes, filters, lineIndex, fuse, expandedNodeId, project.nodes])
 
   // The list is virtualised, so the opened row has to be scrolled to.
   useEffect(() => {
-    if (!editingNodeId) {
+    if (!expandedNodeId) {
       revealed.current = null
       return
     }
-    if (revealed.current === editingNodeId) return
-    const index = visible.findIndex((node) => node.id === editingNodeId)
+    if (revealed.current === expandedNodeId) return
+    const index = visible.findIndex((node) => node.id === expandedNodeId)
     if (index < 0) return
-    revealed.current = editingNodeId
+    revealed.current = expandedNodeId
     listRef.current?.scrollToIndex(index, { align: 'center' })
-  }, [editingNodeId, visible])
+  }, [expandedNodeId, visible])
 
   function patch(update: Partial<NodeFilters>) {
     setFilters((current) => ({ ...current, ...update }))
@@ -87,22 +100,11 @@ export function StopsTab({ project }: { project: Project }) {
           type="search"
           value={filters.query}
           onChange={(event) => patch({ query: event.target.value })}
-          placeholder="Search stops…"
+          placeholder="Search stops or lines…"
           className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
         />
 
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <select
-            value={filters.kind}
-            onChange={(event) =>
-              patch({ kind: event.target.value as NodeFilters['kind'] })
-            }
-            className="rounded border border-slate-300 px-2 py-1"
-          >
-            <option value="all">All</option>
-            <option value="stop">Stops</option>
-            <option value="waypoint">Waypoints</option>
-          </select>
           <select
             value={filters.sort}
             onChange={(event) =>
@@ -126,14 +128,14 @@ export function StopsTab({ project }: { project: Project }) {
             Unconnected only
           </label>
           <span className="ml-auto text-slate-400">
-            {visible.length} / {nodes.length}
+            {visible.length} / {stopCount}
           </span>
         </div>
       </div>
 
       {visible.length === 0 ? (
         <p className="p-4 text-xs text-slate-500">
-          {nodes.length === 0
+          {stopCount === 0
             ? 'No stops yet. Hit “+ Stop” and click the map.'
             : 'Nothing matches these filters.'}
         </p>

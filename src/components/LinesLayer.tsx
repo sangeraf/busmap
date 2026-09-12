@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import L from 'leaflet'
 import { Polyline, useMap, useMapEvents } from 'react-leaflet'
 import { useStore } from '../store/useStore'
+import { isLineVisible } from '../lib/visibility'
 import type { LatLng, LineId, MapNode, Project, Segment } from '../types'
 
 interface DrawnLine {
@@ -34,7 +35,7 @@ function intersects(geometry: LatLng[], bounds: L.LatLngBounds): boolean {
 }
 
 /** Segments outside the viewport are dropped before Leaflet ever sees them. */
-function useDrawnLines(project: Project): DrawnLine[] {
+function useDrawnLines(project: Project, hiddenTypes: string[]): DrawnLine[] {
   const map = useMap()
   const [bounds, setBounds] = useState(() => map.getBounds().pad(0.2))
 
@@ -46,6 +47,7 @@ function useDrawnLines(project: Project): DrawnLine[] {
   return useMemo(
     () =>
       Object.values(project.lines)
+        .filter((line) => isLineVisible(line, hiddenTypes))
         .map((line) => ({
           id: line.id,
           color: line.color,
@@ -54,14 +56,15 @@ function useDrawnLines(project: Project): DrawnLine[] {
             .filter((geometry) => intersects(geometry, bounds)),
         }))
         .filter((line) => line.positions.length > 0),
-    [project.lines, project.nodes, bounds],
+    [project.lines, project.nodes, bounds, hiddenTypes],
   )
 }
 
 export function LinesLayer({ project }: { project: Project }) {
   const selectedLineId = useStore((s) => s.selectedLineId)
-  const setSelectedLine = useStore((s) => s.setSelectedLine)
-  const drawn = useDrawnLines(project)
+  const revealLine = useStore((s) => s.revealLine)
+  const hiddenTypes = useStore((s) => s.visibility.hiddenTypes)
+  const drawn = useDrawnLines(project, hiddenTypes)
 
   return (
     <>
@@ -71,12 +74,15 @@ export function LinesLayer({ project }: { project: Project }) {
           <Polyline
             key={line.id}
             positions={line.positions}
+            // Otherwise the map's click handler also fires and clears the
+            // selection this click just made.
+            bubblingMouseEvents={false}
             pathOptions={{
               color: line.color,
               weight: isSelected ? 6 : 4,
               opacity: isSelected || !selectedLineId ? 0.9 : 0.35,
             }}
-            eventHandlers={{ click: () => setSelectedLine(line.id) }}
+            eventHandlers={{ click: () => revealLine(line.id) }}
           />
         )
       })}

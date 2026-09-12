@@ -53,6 +53,12 @@ import {
   type WorkspaceStorage,
 } from './storage'
 import { withRecentColor } from '../lib/palette'
+import {
+  DEFAULT_VISIBILITY,
+  typeKey,
+  type NodeVisibility,
+  type VisibilityState,
+} from '../lib/visibility'
 
 export type TabId = 'stops' | 'lines' | 'data'
 
@@ -107,8 +113,14 @@ interface StoreState {
   connect: ConnectState | null
   /** Stop whose quick name/colour editor is open right after placing it. */
   namingNodeId: NodeId | null
-  /** Stop whose row in the Stops tab is expanded for editing. */
+  /** Stop whose row in the Stops tab shows its details. */
+  expandedNodeId: NodeId | null
+  /** Stop whose details are open for editing; it is expanded as well. */
   editingNodeId: NodeId | null
+  /** Line whose row in the Lines tab is expanded. */
+  expandedLineId: LineId | null
+  /** What the map draws, by node kind and line type. */
+  visibility: VisibilityState
   /** Colour given to the next stop; waypoints stay grey. */
   lastStopColor: string
   /** Colours picked lately, offered as swatches. Most recent first. */
@@ -132,9 +144,17 @@ interface StoreState {
   setSelectedNode: (id: NodeId | null) => void
   setHoveredNode: (id: NodeId | null) => void
   setNamingNode: (id: NodeId | null) => void
+  setExpandedNode: (id: NodeId | null) => void
   setEditingNode: (id: NodeId | null) => void
-  /** Opens a node's editor in the Stops tab, wherever it was clicked from. */
+  setExpandedLine: (id: LineId | null) => void
+  /** Opens a node's details in the Stops tab, wherever it was clicked from. */
   revealNode: (id: NodeId) => void
+  /** Opens a line in the Lines tab, wherever it was clicked from. */
+  revealLine: (id: LineId) => void
+  /** Drops whatever is armed or selected, as Escape does. */
+  clearFocus: () => void
+  setNodeVisibility: (kind: NodeKind, value: NodeVisibility) => void
+  toggleTypeVisibility: (typeId: TypeId | null) => void
   rememberColor: (color: string) => void
   addNode: (kind: NodeKind, lat: number, lng: number) => MapNode
   updateNode: (id: NodeId, patch: Partial<Omit<MapNode, 'id'>>) => void
@@ -474,9 +494,12 @@ export const useStore = create<StoreState>((set, get) => {
     saveState: 'idle',
     placementKind: null,
     selectedNodeId: null,
+    expandedNodeId: null,
     editingNodeId: null,
     hoveredNodeId: null,
     selectedLineId: null,
+    expandedLineId: null,
+    visibility: DEFAULT_VISIBILITY,
     connect: null,
     namingNodeId: null,
     lastStopColor: STOP_COLOR,
@@ -623,10 +646,60 @@ export const useStore = create<StoreState>((set, get) => {
 
     setSelectedNode: (id) => set({ selectedNodeId: id }),
 
-    setEditingNode: (id) => set({ editingNodeId: id }),
+    setExpandedNode: (id) =>
+      set({
+        expandedNodeId: id,
+        editingNodeId: id === null ? null : get().editingNodeId,
+      }),
 
+    setEditingNode: (id) =>
+      set({ editingNodeId: id, expandedNodeId: id ?? get().expandedNodeId }),
+
+    setExpandedLine: (id) => set({ expandedLineId: id }),
+
+    /** Clicking a stop on the map shows its details, but not its editor. */
     revealNode: (id) =>
-      set({ selectedNodeId: id, editingNodeId: id, activeTab: 'stops' }),
+      set({
+        selectedNodeId: id,
+        expandedNodeId: id,
+        editingNodeId: null,
+        activeTab: 'stops',
+      }),
+
+    revealLine: (id) =>
+      set({ selectedLineId: id, expandedLineId: id, activeTab: 'lines' }),
+
+    clearFocus: () => {
+      // The quick editor closes first, leaving placement armed.
+      if (get().namingNodeId) {
+        set({ namingNodeId: null })
+        return
+      }
+      get().setPlacementKind(null)
+      get().stopConnecting()
+      set({
+        selectedNodeId: null,
+        selectedLineId: null,
+        expandedNodeId: null,
+        editingNodeId: null,
+        expandedLineId: null,
+      })
+    },
+
+    setNodeVisibility: (kind, value) =>
+      set((state) => ({ visibility: { ...state.visibility, [kind]: value } })),
+
+    toggleTypeVisibility: (typeId) => {
+      const key = typeKey(typeId)
+      set((state) => ({
+        visibility: {
+          ...state.visibility,
+          hiddenTypes: state.visibility.hiddenTypes.includes(key)
+            ? state.visibility.hiddenTypes.filter((item) => item !== key)
+            : [...state.visibility.hiddenTypes, key],
+        },
+      }))
+    },
 
     setHoveredNode: (id) => set({ hoveredNodeId: id }),
 
@@ -720,6 +793,7 @@ export const useStore = create<StoreState>((set, get) => {
         project.updatedAt = new Date().toISOString()
       })
       if (get().selectedNodeId === id) set({ selectedNodeId: null })
+      if (get().expandedNodeId === id) set({ expandedNodeId: null })
       if (get().editingNodeId === id) set({ editingNodeId: null })
       if (get().namingNodeId === id) set({ namingNodeId: null })
       const { connect } = get()
@@ -729,6 +803,10 @@ export const useStore = create<StoreState>((set, get) => {
 
     setSelectedLine: (id) => set({ selectedLineId: id }),
 
+    /**
+     * A fresh line is opened with its first branch already connecting, so the
+     * stops can be clicked out right away.
+     */
     addLine: (input) => {
       const line = createLine(input)
       commit((workspace) => {
@@ -737,7 +815,8 @@ export const useStore = create<StoreState>((set, get) => {
         project.lines[line.id] = line
         project.updatedAt = new Date().toISOString()
       })
-      set({ selectedLineId: line.id })
+      set({ selectedLineId: line.id, expandedLineId: line.id })
+      get().startConnecting(line.id, line.groups[0].id)
       return line
     },
 
@@ -755,6 +834,8 @@ export const useStore = create<StoreState>((set, get) => {
       set((state) => ({
         selectedLineId:
           state.selectedLineId === id ? null : state.selectedLineId,
+        expandedLineId:
+          state.expandedLineId === id ? null : state.expandedLineId,
         connect: state.connect?.lineId === id ? null : state.connect,
       }))
     },
