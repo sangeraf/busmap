@@ -1,87 +1,89 @@
-import { useState } from 'react'
-import { useStore } from '../store/useStore'
+import { useState } from "react";
+import { useStore } from "../store/useStore";
 import {
   formatLengthM,
   lineChains,
   lineLengthM,
   lineStopIds,
-} from '../lib/lines'
-import { ColorPicker } from './ColorPicker'
-import { LineTypeSelect } from './LineTypeSelect'
-import { NodeInfo } from './NodeInfo'
-import type { Line, Project, Segment, SegmentMode } from '../types'
+} from "../lib/lines";
+import { ColorPicker } from "./ColorPicker";
+import { LineTypeSelect } from "./LineTypeSelect";
+import { NodeInfo } from "./NodeInfo";
+import type { Line, Project, Segment, SegmentMode } from "../types";
 
 /** The toggle cycles through the three ways of drawing a connection. */
 const NEXT_MODE: Record<SegmentMode, SegmentMode> = {
-  straight: 'road',
-  road: 'rail',
-  rail: 'straight',
-}
+  straight: "road",
+  road: "rail",
+  rail: "straight",
+};
 
 const MODE_GLYPH: Record<SegmentMode, string> = {
-  straight: '╱',
-  road: '↝',
-  rail: '╫',
-}
+  straight: "╱",
+  road: "↝",
+  rail: "╫",
+};
 
 const NEXT_LABEL: Record<SegmentMode, string> = {
-  straight: 'roads',
-  road: 'rails',
-  rail: 'a straight line',
-}
+  straight: "roads",
+  road: "rails",
+  rail: "a straight line",
+};
 
 /** Tooltip of the mode toggle, with the routed length if known. */
 function legTitle(segment: Segment): string {
-  const next = `switch to ${NEXT_LABEL[segment.mode]}`
-  if (segment.mode === 'straight') return `Straight line — ${next}`
-  const label = segment.mode === 'road' ? 'Via roads' : 'Via rails'
+  const next = `switch to ${NEXT_LABEL[segment.mode]}`;
+  if (segment.mode === "straight") return `Straight line — ${next}`;
+  const label = segment.mode === "road" ? "Via roads" : "Via rails";
   if (segment.stale || segment.distanceM === undefined) {
-    return `${label} — waiting for a route`
+    return `${label} — waiting for a route`;
   }
-  const km = (segment.distanceM / 1000).toFixed(1)
+  const km = (segment.distanceM / 1000).toFixed(1);
   const duration =
     segment.durationS === undefined
-      ? ''
-      : `, ${Math.round(segment.durationS / 60)} min`
-  return `${label} — ${km} km${duration} — ${next}`
+      ? ""
+      : `, ${Math.round(segment.durationS / 60)} min`;
+  return `${label} — ${km} km${duration} — ${next}`;
 }
 
 interface Props {
-  line: Line
-  project: Project
+  line: Line;
+  project: Project;
 }
 
 export function LineRow({ line, project }: Props) {
-  const selected = useStore((s) => s.selectedLineId === line.id)
-  const connect = useStore((s) => s.connect)
-  const setSelectedLine = useStore((s) => s.setSelectedLine)
-  const setSelectedNode = useStore((s) => s.setSelectedNode)
-  const updateLine = useStore((s) => s.updateLine)
-  const deleteLine = useStore((s) => s.deleteLine)
-  const addBranch = useStore((s) => s.addBranch)
-  const renameBranch = useStore((s) => s.renameBranch)
-  const deleteBranch = useStore((s) => s.deleteBranch)
-  const startConnecting = useStore((s) => s.startConnecting)
-  const stopConnecting = useStore((s) => s.stopConnecting)
-  const removeStop = useStore((s) => s.removeStop)
-  const moveStop = useStore((s) => s.moveStop)
-  const setSegmentMode = useStore((s) => s.setSegmentMode)
-  const setLineMode = useStore((s) => s.setLineMode)
+  const selected = useStore((s) => s.selectedLineId === line.id);
+  const connect = useStore((s) => s.connect);
+  const setSelectedLine = useStore((s) => s.setSelectedLine);
+  const setSelectedNode = useStore((s) => s.setSelectedNode);
+  const updateLine = useStore((s) => s.updateLine);
+  const deleteLine = useStore((s) => s.deleteLine);
+  const addBranch = useStore((s) => s.addBranch);
+  const renameBranch = useStore((s) => s.renameBranch);
+  const deleteBranch = useStore((s) => s.deleteBranch);
+  const mergeBranches = useStore((s) => s.mergeBranches);
+  const splitBranch = useStore((s) => s.splitBranch);
+  const startConnecting = useStore((s) => s.startConnecting);
+  const stopConnecting = useStore((s) => s.stopConnecting);
+  const removeStop = useStore((s) => s.removeStop);
+  const moveStop = useStore((s) => s.moveStop);
+  const setSegmentMode = useStore((s) => s.setSegmentMode);
+  const setLineMode = useStore((s) => s.setLineMode);
 
   // Expansion lives in the store so a click on the map can open the line.
-  const expanded = useStore((s) => s.expandedLineId === line.id)
-  const setExpandedLine = useStore((s) => s.setExpandedLine)
-  const [editing, setEditing] = useState(false)
+  const expanded = useStore((s) => s.expandedLineId === line.id);
+  const setExpandedLine = useStore((s) => s.setExpandedLine);
+  const [editing, setEditing] = useState(false);
 
-  const type = line.typeId ? project.lineTypes[line.typeId] : undefined
-  const chains = lineChains(line)
-  const stopCount = lineStopIds(line).length
-  const length = lineLengthM(line, project.nodes)
+  const type = line.typeId ? project.lineTypes[line.typeId] : undefined;
+  const chains = lineChains(line);
+  const stopCount = lineStopIds(line).length;
+  const length = lineLengthM(line, project.nodes);
 
   return (
     <div
       className={`border-b border-slate-100 px-4 py-2 ${
-        selected ? 'bg-blue-50' : ''
+        selected ? "bg-blue-50" : ""
       }`}
     >
       <div className="flex items-center gap-2">
@@ -92,8 +94,8 @@ export function LineRow({ line, project }: Props) {
         <button
           type="button"
           onClick={() => {
-            setSelectedLine(line.id)
-            setExpandedLine(expanded ? null : line.id)
+            setSelectedLine(line.id);
+            setExpandedLine(expanded ? null : line.id);
           }}
           className="min-w-0 flex-1 truncate text-left text-sm text-slate-800"
         >
@@ -112,7 +114,7 @@ export function LineRow({ line, project }: Props) {
           onClick={() => setExpandedLine(expanded ? null : line.id)}
           className="shrink-0 text-[11px] text-slate-500 hover:text-slate-900"
         >
-          {expanded ? '▲' : '▼'}
+          {expanded ? "▲" : "▼"}
         </button>
       </div>
 
@@ -128,7 +130,7 @@ export function LineRow({ line, project }: Props) {
               onClick={() => setEditing((value) => !value)}
               className="text-slate-600 hover:underline"
             >
-              {editing ? 'Done' : 'Edit'}
+              {editing ? "Done" : "Edit"}
             </button>
             <button
               type="button"
@@ -140,7 +142,7 @@ export function LineRow({ line, project }: Props) {
             <button
               type="button"
               title="Route every connection of this line along roads"
-              onClick={() => setLineMode(line.id, 'road')}
+              onClick={() => setLineMode(line.id, "road")}
               className="text-slate-600 hover:underline"
             >
               All via roads
@@ -148,7 +150,7 @@ export function LineRow({ line, project }: Props) {
             <button
               type="button"
               title="Route every connection of this line along rail tracks"
-              onClick={() => setLineMode(line.id, 'rail')}
+              onClick={() => setLineMode(line.id, "rail")}
               className="text-slate-600 hover:underline"
             >
               All via rails
@@ -156,7 +158,7 @@ export function LineRow({ line, project }: Props) {
             <button
               type="button"
               title="Turn every connection of this line into a straight line"
-              onClick={() => setLineMode(line.id, 'straight')}
+              onClick={() => setLineMode(line.id, "straight")}
               className="text-slate-600 hover:underline"
             >
               All straight
@@ -165,7 +167,7 @@ export function LineRow({ line, project }: Props) {
               type="button"
               onClick={() => {
                 if (window.confirm(`Delete line "${line.name}"?`))
-                  deleteLine(line.id)
+                  deleteLine(line.id);
               }}
               className="ml-auto text-red-600 hover:underline"
             >
@@ -208,10 +210,10 @@ export function LineRow({ line, project }: Props) {
 
           {chains.map((chain, chainIndex) => {
             const connecting =
-              connect?.lineId === line.id && connect.groupId === chain.groupId
+              connect?.lineId === line.id && connect.groupId === chain.groupId;
             const first = chains.findIndex(
               (item) => item.groupId === chain.groupId,
-            )
+            );
             return (
               <div
                 key={`${chain.groupId}-${chainIndex}`}
@@ -245,8 +247,8 @@ export function LineRow({ line, project }: Props) {
                       type="button"
                       title={
                         chain.segments.length === 0
-                          ? 'Click stops on the map to start this branch'
-                          : 'Insert stops before the first one'
+                          ? "Click stops on the map to start this branch"
+                          : "Insert stops before the first one"
                       }
                       onClick={() =>
                         startConnecting(line.id, chain.groupId, {
@@ -255,8 +257,33 @@ export function LineRow({ line, project }: Props) {
                       }
                       className="shrink-0 rounded border border-slate-300 px-2 py-1 text-[11px] text-slate-700"
                     >
-                      {chain.segments.length === 0 ? 'Add stops' : '+ at start'}
+                      {chain.segments.length === 0 ? "Add stops" : "+ at start"}
                     </button>
+                  )}
+                  {first === chainIndex && line.groups.length > 1 && (
+                    <select
+                      value=""
+                      title="Append this branch to another one, connecting their ends"
+                      onChange={(event) => {
+                        if (event.target.value) {
+                          mergeBranches(
+                            line.id,
+                            event.target.value,
+                            chain.groupId,
+                          );
+                        }
+                      }}
+                      className="shrink-0 rounded border border-slate-300 px-1 py-1 text-[11px] text-slate-700"
+                    >
+                      <option value="">Merge into…</option>
+                      {line.groups
+                        .filter((group) => group.id !== chain.groupId)
+                        .map((group) => (
+                          <option key={group.id} value={group.id}>
+                            {group.label || "Branch"}
+                          </option>
+                        ))}
+                    </select>
                   )}
                   {first === chainIndex && (
                     <button
@@ -268,7 +295,7 @@ export function LineRow({ line, project }: Props) {
                             `Delete branch "${chain.label}" and all its connections?`,
                           )
                         )
-                          deleteBranch(line.id, chain.groupId)
+                          deleteBranch(line.id, chain.groupId);
                       }}
                       className="shrink-0 text-[11px] text-red-500 hover:text-red-700"
                     >
@@ -284,9 +311,9 @@ export function LineRow({ line, project }: Props) {
                 ) : (
                   <ol className="mt-1 space-y-0.5">
                     {chain.nodeIds.map((nodeId, index) => {
-                      const node = project.nodes[nodeId]
-                      const incoming = chain.segments[index - 1]
-                      const outgoing = chain.segments[index]
+                      const node = project.nodes[nodeId];
+                      const incoming = chain.segments[index - 1];
+                      const outgoing = chain.segments[index];
                       const anchored =
                         connecting && connect
                           ? connect.anchorId
@@ -295,38 +322,38 @@ export function LineRow({ line, project }: Props) {
                                 outgoing?.id === connect.bridgeId)
                             : !incoming &&
                               chain.segments[0]?.id === connect.bridgeId
-                          : false
+                          : false;
                       return (
                         <li
                           key={`${nodeId}-${index}`}
                           className={`flex items-center gap-2 rounded text-xs ${
-                            anchored ? 'bg-blue-100 text-blue-900' : ''
+                            anchored ? "bg-blue-100 text-blue-900" : ""
                           }`}
                           title={
                             anchored
                               ? connect?.anchorId
-                                ? 'The next clicked stop goes after this one'
-                                : 'The next clicked stop goes before this one'
+                                ? "The next clicked stop goes after this one"
+                                : "The next clicked stop goes before this one"
                               : undefined
                           }
                         >
                           <span
                             className={`w-4 shrink-0 text-right ${
-                              anchored ? 'text-blue-600' : 'text-slate-400'
+                              anchored ? "text-blue-600" : "text-slate-400"
                             }`}
                           >
-                            {anchored ? '▸' : index + 1}
+                            {anchored ? "▸" : index + 1}
                           </span>
                           <button
                             type="button"
                             onClick={() => setSelectedNode(nodeId)}
                             className={`min-w-0 flex-1 truncate text-left hover:underline ${
                               anchored
-                                ? 'font-medium text-blue-900'
-                                : 'text-slate-700'
+                                ? "font-medium text-blue-900"
+                                : "text-slate-700"
                             }`}
                           >
-                            {node?.name ?? 'Missing stop'}
+                            {node?.name ?? "Missing stop"}
                             <NodeInfo info={node?.info} />
                           </button>
                           <span className="flex shrink-0 items-center gap-1 text-slate-400">
@@ -342,12 +369,12 @@ export function LineRow({ line, project }: Props) {
                                   )
                                 }
                                 className={`w-3 ${
-                                  incoming.mode !== 'straight'
+                                  incoming.mode !== "straight"
                                     ? incoming.stale ||
                                       incoming.distanceM === undefined
-                                      ? 'text-amber-500'
-                                      : 'text-emerald-600'
-                                    : 'hover:text-slate-900'
+                                      ? "text-amber-500"
+                                      : "text-emerald-600"
+                                    : "hover:text-slate-900"
                                 }`}
                               >
                                 {MODE_GLYPH[incoming.mode]}
@@ -387,8 +414,8 @@ export function LineRow({ line, project }: Props) {
                               type="button"
                               title={
                                 outgoing
-                                  ? 'Insert stops after this one'
-                                  : 'Continue the branch from this stop'
+                                  ? "Insert stops after this one"
+                                  : "Continue the branch from this stop"
                               }
                               onClick={() =>
                                 startConnecting(line.id, chain.groupId, {
@@ -400,12 +427,26 @@ export function LineRow({ line, project }: Props) {
                             >
                               +
                             </button>
+                            {incoming && outgoing ? (
+                              <button
+                                type="button"
+                                title="Split the branch here; this stop ends the first one and starts the second"
+                                onClick={() =>
+                                  splitBranch(line.id, outgoing.id)
+                                }
+                                className="hover:text-blue-600"
+                              >
+                                ✂
+                              </button>
+                            ) : (
+                              <span className="w-3" />
+                            )}
                             <button
                               type="button"
                               title={
                                 incoming && outgoing
-                                  ? 'Remove stop and connect its neighbours'
-                                  : 'Remove stop from this branch'
+                                  ? "Remove stop and connect its neighbours"
+                                  : "Remove stop from this branch"
                               }
                               onClick={() =>
                                 removeStop(
@@ -420,15 +461,15 @@ export function LineRow({ line, project }: Props) {
                             </button>
                           </span>
                         </li>
-                      )
+                      );
                     })}
                   </ol>
                 )}
               </div>
-            )
+            );
           })}
         </div>
       )}
     </div>
-  )
+  );
 }
