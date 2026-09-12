@@ -37,6 +37,7 @@ import {
   removeChainStop,
   removeNodeFromLine,
   moveChainStop,
+  refreshBranchLabels,
   splitBranch,
 } from '../lib/lines'
 import { createId } from '../lib/id'
@@ -289,7 +290,14 @@ export const useStore = create<StoreState>((set, get) => {
     options: { history?: boolean } = {},
   ) {
     const previous = get().workspace
-    const workspace = produce(previous, recipe)
+    const workspace = produce(previous, (draft) => {
+      recipe(draft)
+      const project = activeProject(draft)
+      if (!project) return
+      for (const line of Object.values(project.lines)) {
+        refreshBranchLabels(line, project.nodes)
+      }
+    })
     if (workspace === previous) return
     if (options.history !== false) {
       past.push(previous)
@@ -896,10 +904,7 @@ export const useStore = create<StoreState>((set, get) => {
       commit((workspace) => {
         const line = activeProject(workspace)?.lines[lineId]
         if (!line) return
-        line.groups.push({
-          id: createId('grp'),
-          label: `Branch ${line.groups.length + 1}`,
-        })
+        line.groups.push({ id: createId('grp'), label: '' })
       }),
 
     /** Drops a branch together with every connection that belongs to it. */
@@ -958,7 +963,10 @@ export const useStore = create<StoreState>((set, get) => {
           (item) => item.id === groupId,
         )
         // Trimming here would swallow spaces as the label is typed.
-        if (group) group.label = label
+        if (!group) return
+        group.label = label
+        // An emptied name hands the branch back to the automatic one.
+        group.renamed = label.trim().length > 0
       }),
 
     startConnecting: (lineId, groupId, at) =>

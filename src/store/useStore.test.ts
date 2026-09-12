@@ -288,6 +288,30 @@ describe('workspace store', () => {
     ])
   })
 
+  it('names a branch after its first and last stop until it is renamed', () => {
+    const store = useStore.getState()
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.51, 19.01)
+    const c = store.addNode('stop', 47.52, 19.02)
+    const line = store.addLine({ name: '7' })
+    const groupId = line.groups[0].id
+    useStore.getState().startConnecting(line.id, groupId)
+    useStore.getState().connectTo(a.id)
+    useStore.getState().connectTo(b.id)
+    expect(activeLine(line.id).groups[0].label).toBe(`${a.name} -> ${b.name}`)
+
+    useStore.getState().connectTo(c.id)
+    useStore.getState().updateNode(c.id, { name: 'Terminus' })
+    expect(activeLine(line.id).groups[0].label).toBe(`${a.name} -> Terminus`)
+
+    useStore.getState().renameBranch(line.id, groupId, 'Morning loop')
+    useStore.getState().updateNode(a.id, { name: 'Depot' })
+    expect(activeLine(line.id).groups[0].label).toBe('Morning loop')
+
+    useStore.getState().renameBranch(line.id, groupId, '')
+    expect(activeLine(line.id).groups[0].label).toBe('Depot -> Terminus')
+  })
+
   it('turns a click on empty map into a connected waypoint', () => {
     const store = useStore.getState()
     const a = store.addNode('stop', 47.5, 19.0)
