@@ -6,6 +6,7 @@ import {
   LINE_COLOR,
   createLineFuse,
   filterLines,
+  isRouted,
   type LineFilters,
 } from '../../lib/lines'
 import { ColorPicker } from '../ColorPicker'
@@ -55,7 +56,7 @@ export function LinesTab({ project }: { project: Project }) {
           total +
           line.segments.filter(
             (segment) =>
-              segment.mode === 'road' &&
+              isRouted(segment.mode) &&
               (segment.stale || segment.distanceM === undefined),
           ).length,
         0,
@@ -151,7 +152,7 @@ export function LinesTab({ project }: { project: Project }) {
 
         <div className="flex items-center gap-2 text-xs text-slate-600">
           <span className="shrink-0">New connections:</span>
-          {(['straight', 'road'] as const).map((mode) => (
+          {(['straight', 'road', 'rail'] as const).map((mode) => (
             <button
               key={mode}
               type="button"
@@ -162,7 +163,11 @@ export function LinesTab({ project }: { project: Project }) {
                   : 'border border-slate-300'
               }`}
             >
-              {mode === 'straight' ? 'Straight' : 'Via roads'}
+              {mode === 'straight'
+                ? 'Straight'
+                : mode === 'road'
+                  ? 'Via roads'
+                  : 'Via rails'}
             </button>
           ))}
           {routing.pending > 0 && (
@@ -175,8 +180,7 @@ export function LinesTab({ project }: { project: Project }) {
         {staleCount > 0 && routing.pending === 0 && (
           <div className="flex items-center gap-2 rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
             <span className="min-w-0 flex-1">
-              {routing.error ??
-                `${staleCount} road connection(s) need a route.`}
+              {routing.error ?? `${staleCount} connection(s) need a route.`}
             </span>
             <button
               type="button"

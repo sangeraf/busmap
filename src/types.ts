@@ -6,7 +6,7 @@ export type GroupId = string
 export type ProjectId = string
 
 export type NodeKind = 'stop' | 'waypoint'
-export type SegmentMode = 'straight' | 'road'
+export type SegmentMode = 'straight' | 'road' | 'rail'
 
 export type LatLng = [number, number]
 

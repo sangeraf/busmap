@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setStorageBackend, useStore } from './useStore'
 import { STOP_COLOR, WAYPOINT_COLOR } from '../lib/nodes'
 import { clearRouteCache } from '../lib/routing'
+import { clearRailCache } from '../lib/rail'
 import { parseProjectFile } from '../lib/exchange'
 import type { LatLng } from '../types'
 import {
@@ -49,6 +50,7 @@ describe('workspace store', () => {
 
   afterEach(() => {
     clearRouteCache()
+    clearRailCache()
     useStore.setState({
       defaultSegmentMode: 'straight',
       routing: { pending: 0, failed: 0, error: null },
@@ -545,6 +547,47 @@ describe('workspace store', () => {
     expect(useStore.getState().routing.failed).toBe(1)
     expect(useStore.getState().routing.pending).toBe(0)
     expect(useStore.getState().routing.error).toContain('could not be routed')
+  })
+
+  it('draws a rail connection along the tracks around the stops', async () => {
+    const track: LatLng[] = [
+      [47.5, 19.0],
+      [47.505, 19.005],
+      [47.51, 19.01],
+    ]
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        elements: [
+          {
+            type: 'way',
+            id: 1,
+            geometry: track.map(([lat, lon]) => ({ lat, lon })),
+          },
+        ],
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useStore.getState()
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.51, 19.01)
+    const line = store.addLine({ name: '47' })
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectTo(a.id)
+    useStore.getState().connectTo(b.id)
+
+    const segmentId = activeLine(line.id).segments[0].id
+    useStore.getState().setSegmentMode(line.id, segmentId, 'rail')
+    expect(activeLine(line.id).segments[0].stale).toBe(true)
+
+    await useStore.getState().routeStaleSegments()
+    const routed = activeLine(line.id).segments[0]
+    expect(routed.mode).toBe('rail')
+    expect(routed.stale).toBe(false)
+    expect(routed.geometry).toHaveLength(3)
+    expect(routed.durationS).toBeUndefined()
+    expect(routed.distanceM).toBeGreaterThan(0)
   })
 
   it('switches a whole line back to straight geometry', async () => {

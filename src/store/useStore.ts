@@ -28,6 +28,7 @@ import {
 import { STOP_COLOR, createNode, nearestNode } from '../lib/nodes'
 import {
   applySegmentMode,
+  isRouted,
   createLine,
   createLineType,
   createSegment,
@@ -46,6 +47,7 @@ import {
 import {
   emptyWorkspace,
   indexedDbBackend,
+  railOverlayStorage,
   recentColorsStorage,
   type Workspace,
   type WorkspaceStorage,
@@ -74,7 +76,7 @@ export interface HistoryState {
   future: number
 }
 
-/** Progress of the background OSRM requests. */
+/** Progress of the background routing requests. */
 export interface RoutingState {
   pending: number
   failed: number
@@ -113,6 +115,8 @@ interface StoreState {
   recentColors: string[]
   /** Mode used for connections created from now on. */
   defaultSegmentMode: SegmentMode
+  /** OpenRailwayMap tracks drawn over the base map. */
+  railOverlay: boolean
   routing: RoutingState
   history: HistoryState
   folder: FolderSyncState
@@ -174,6 +178,7 @@ interface StoreState {
     delta: number,
   ) => void
   setDefaultSegmentMode: (mode: SegmentMode) => void
+  setRailOverlay: (visible: boolean) => void
   setSegmentMode: (
     lineId: LineId,
     segmentId: SegmentId,
@@ -220,7 +225,7 @@ function activeProject(workspace: Workspace): Project | undefined {
   return id ? workspace.projects[id] : undefined
 }
 
-/** Segments with an OSRM request in flight, so they are not queued twice. */
+/** Segments with a routing request in flight, so they are not queued twice. */
 const routingSegments = new Set<SegmentId>()
 
 /** Routing runs are chained, so awaiting one also awaits the queued ones. */
@@ -387,11 +392,12 @@ export const useStore = create<StoreState>((set, get) => {
     const targets: {
       lineId: LineId
       segmentId: SegmentId
+      mode: SegmentMode
       ends: LatLng[]
     }[] = []
     for (const line of Object.values(project.lines)) {
       for (const segment of line.segments) {
-        if (segment.mode !== 'road') continue
+        if (!isRouted(segment.mode)) continue
         if (!segment.stale && segment.distanceM !== undefined) continue
         if (routingSegments.has(segment.id)) continue
         const from = project.nodes[segment.from]
@@ -401,6 +407,7 @@ export const useStore = create<StoreState>((set, get) => {
         targets.push({
           lineId: line.id,
           segmentId: segment.id,
+          mode: segment.mode,
           ends: [
             [from.lat, from.lng],
             [to.lat, to.lng],
@@ -420,14 +427,18 @@ export const useStore = create<StoreState>((set, get) => {
 
     const results = await mapWithConcurrency(
       targets.map((target) => async () => {
-        const route = await routeBetween(target.ends[0], target.ends[1])
+        const route = await routeBetween(
+          target.ends[0],
+          target.ends[1],
+          target.mode,
+        )
         commit(
           (workspace) => {
           const line = activeProject(workspace)?.lines[target.lineId]
           const segment = line?.segments.find(
             (item) => item.id === target.segmentId,
           )
-          if (!segment || segment.mode !== 'road') return
+          if (!segment || segment.mode !== target.mode) return
           segment.geometry = withEndpoints(
             route.geometry,
             target.ends[0],
@@ -471,6 +482,7 @@ export const useStore = create<StoreState>((set, get) => {
     lastStopColor: STOP_COLOR,
     recentColors: [],
     defaultSegmentMode: 'straight',
+    railOverlay: false,
     routing: { pending: 0, failed: 0, error: null },
     history: { past: 0, future: 0 },
     folder: {
@@ -484,11 +496,12 @@ export const useStore = create<StoreState>((set, get) => {
     hydrate: async () => {
       if (get().hydrated) return
       await hydrateRouteCache()
-      const [loaded, recentColors] = await Promise.all([
+      const [loaded, recentColors, railOverlay] = await Promise.all([
         storage.load(),
         recentColorsStorage.load(),
+        railOverlayStorage.load(),
       ])
-      set({ recentColors })
+      set({ recentColors, railOverlay })
       past = []
       future = []
       set({
@@ -673,7 +686,7 @@ export const useStore = create<StoreState>((set, get) => {
           for (const line of Object.values(project.lines)) {
             for (const segment of line.segments) {
               if (segment.from !== id && segment.to !== id) continue
-              if (segment.mode === 'road') {
+              if (isRouted(segment.mode)) {
                 segment.stale = true
               } else {
                 const from = project.nodes[segment.from]
@@ -895,10 +908,15 @@ export const useStore = create<StoreState>((set, get) => {
 
     setDefaultSegmentMode: (mode) => set({ defaultSegmentMode: mode }),
 
+    setRailOverlay: (visible) => {
+      set({ railOverlay: visible })
+      void railOverlayStorage.save(visible)
+    },
+
     /**
-     * Switching a connection to `road` only marks it stale; the geometry is
-     * filled in by the background router. Switching back to `straight` drops
-     * the road geometry and its distance/duration right away.
+     * Switching a connection to `road` or `rail` only marks it stale; the
+     * geometry is filled in by the background router. Switching back to
+     * `straight` drops the routed geometry and its distance right away.
      */
     setSegmentMode: (lineId, segmentId, mode) => {
       commit((workspace) => {
@@ -926,7 +944,7 @@ export const useStore = create<StoreState>((set, get) => {
     },
 
     /**
-     * Fetches the driving route of every road connection that has none yet or
+     * Fetches the route of every road or rail connection that has none yet or
      * whose stops moved. Requests are cached, de-duplicated and run a few at a
      * time; segments that fail stay stale so they can be retried.
      */

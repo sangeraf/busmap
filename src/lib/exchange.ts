@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { createId } from './id'
 import { decodeGeometry, encodeGeometry } from './serialize'
 import { DEFAULT_CENTER, DEFAULT_ZOOM } from './project'
+import { isRouted } from './lines'
 import { SCHEMA_VERSION } from '../types'
 import type {
   LatLng,
@@ -35,7 +36,7 @@ const segmentSchema = z.object({
   id: z.string().optional(),
   from: z.string(),
   to: z.string(),
-  mode: z.enum(['straight', 'road']).default('straight'),
+  mode: z.enum(['straight', 'road', 'rail']).default('straight'),
   geometry: geometry.optional(),
   distanceM: z.number().optional(),
   durationS: z.number().optional(),
@@ -243,7 +244,7 @@ function buildProject(
         ...(segment.durationS === undefined
           ? {}
           : { durationS: segment.durationS }),
-        ...(segment.mode === 'road' && geometry.length < 3
+        ...(isRouted(segment.mode) && geometry.length < 3
           ? { stale: true }
           : {}),
       })
