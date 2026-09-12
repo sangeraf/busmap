@@ -7,6 +7,11 @@ import {
   type StoredProject,
 } from '../lib/serialize'
 import type { CachedRoute, RouteCacheBackend } from '../lib/routing'
+import {
+  DEFAULT_VISIBILITY,
+  type NodeVisibility,
+  type VisibilityState,
+} from '../lib/visibility'
 
 const STORE_KEY = 'busmap.workspace'
 
@@ -139,6 +144,45 @@ export const railOverlayStorage = {
       await idbSet(RAIL_OVERLAY_KEY, visible)
     } catch (error) {
       console.error('Failed to persist the rail overlay setting', error)
+    }
+  },
+}
+
+const VISIBILITY_KEY = 'busmap.visibility'
+
+function isNodeVisibilityValue(value: unknown): value is NodeVisibility {
+  return value === 'all' || value === 'connected' || value === 'none'
+}
+
+/** What the legend hides, kept across reloads like the rail overlay. */
+export const visibilityStorage = {
+  async load(): Promise<VisibilityState> {
+    if (typeof indexedDB === 'undefined') return DEFAULT_VISIBILITY
+    try {
+      const stored = await idbGet<Partial<VisibilityState>>(VISIBILITY_KEY)
+      if (!stored) return DEFAULT_VISIBILITY
+      return {
+        stop: isNodeVisibilityValue(stored.stop)
+          ? stored.stop
+          : DEFAULT_VISIBILITY.stop,
+        waypoint: isNodeVisibilityValue(stored.waypoint)
+          ? stored.waypoint
+          : DEFAULT_VISIBILITY.waypoint,
+        hiddenTypes: Array.isArray(stored.hiddenTypes)
+          ? stored.hiddenTypes.filter((key) => typeof key === 'string')
+          : [],
+      }
+    } catch (error) {
+      console.error('Failed to read the visibility settings', error)
+      return DEFAULT_VISIBILITY
+    }
+  },
+  async save(visibility: VisibilityState): Promise<void> {
+    if (typeof indexedDB === 'undefined') return
+    try {
+      await idbSet(VISIBILITY_KEY, visibility)
+    } catch (error) {
+      console.error('Failed to persist the visibility settings', error)
     }
   },
 }

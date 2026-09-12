@@ -49,6 +49,7 @@ import {
   indexedDbBackend,
   railOverlayStorage,
   recentColorsStorage,
+  visibilityStorage,
   type Workspace,
   type WorkspaceStorage,
 } from './storage'
@@ -519,12 +520,15 @@ export const useStore = create<StoreState>((set, get) => {
     hydrate: async () => {
       if (get().hydrated) return
       await hydrateRouteCache()
-      const [loaded, recentColors, railOverlay] = await Promise.all([
-        storage.load(),
-        recentColorsStorage.load(),
-        railOverlayStorage.load(),
-      ])
-      set({ recentColors, railOverlay })
+      const [loaded, recentColors, railOverlay, visibility] = await Promise.all(
+        [
+          storage.load(),
+          recentColorsStorage.load(),
+          railOverlayStorage.load(),
+          visibilityStorage.load(),
+        ],
+      )
+      set({ recentColors, railOverlay, visibility })
       past = []
       future = []
       set({
@@ -686,19 +690,23 @@ export const useStore = create<StoreState>((set, get) => {
       })
     },
 
-    setNodeVisibility: (kind, value) =>
-      set((state) => ({ visibility: { ...state.visibility, [kind]: value } })),
+    setNodeVisibility: (kind, value) => {
+      const visibility = { ...get().visibility, [kind]: value }
+      set({ visibility })
+      void visibilityStorage.save(visibility)
+    },
 
     toggleTypeVisibility: (typeId) => {
       const key = typeKey(typeId)
-      set((state) => ({
-        visibility: {
-          ...state.visibility,
-          hiddenTypes: state.visibility.hiddenTypes.includes(key)
-            ? state.visibility.hiddenTypes.filter((item) => item !== key)
-            : [...state.visibility.hiddenTypes, key],
-        },
-      }))
+      const current = get().visibility
+      const visibility = {
+        ...current,
+        hiddenTypes: current.hiddenTypes.includes(key)
+          ? current.hiddenTypes.filter((item) => item !== key)
+          : [...current.hiddenTypes, key],
+      }
+      set({ visibility })
+      void visibilityStorage.save(visibility)
     },
 
     setHoveredNode: (id) => set({ hoveredNodeId: id }),
