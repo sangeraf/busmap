@@ -36,15 +36,7 @@ export function useShortcuts({ toggleLegend, toggleHelp }: Options) {
     function onKeyDown(event: KeyboardEvent) {
       const store = useStore.getState()
       if (event.key === 'Escape') {
-        // The quick editor closes first, leaving placement armed.
-        if (store.namingNodeId) {
-          store.setNamingNode(null)
-          return
-        }
-        store.setPlacementKind(null)
-        store.stopConnecting()
-        store.setSelectedNode(null)
-        store.setSelectedLine(null)
+        store.clearFocus()
         return
       }
       if (isTyping(event.target)) return

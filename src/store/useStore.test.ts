@@ -192,7 +192,7 @@ describe('workspace store', () => {
     )
   })
 
-  it('opens a stop for editing on the stops tab when revealed', () => {
+  it('expands a stop on the stops tab when revealed, without editing it', () => {
     const store = useStore.getState()
     const a = store.addNode('stop', 47.5, 19.0)
     useStore.getState().setActiveTab('lines')
@@ -200,10 +200,24 @@ describe('workspace store', () => {
     useStore.getState().revealNode(a.id)
     expect(useStore.getState().activeTab).toBe('stops')
     expect(useStore.getState().selectedNodeId).toBe(a.id)
-    expect(useStore.getState().editingNodeId).toBe(a.id)
+    expect(useStore.getState().expandedNodeId).toBe(a.id)
+    expect(useStore.getState().editingNodeId).toBeNull()
 
     useStore.getState().deleteNode(a.id)
-    expect(useStore.getState().editingNodeId).toBeNull()
+    expect(useStore.getState().expandedNodeId).toBeNull()
+  })
+
+  it('starts connecting the first branch of a new line', () => {
+    const line = useStore.getState().addLine({ name: '7' })
+    expect(useStore.getState().expandedLineId).toBe(line.id)
+    expect(useStore.getState().connect).toMatchObject({
+      lineId: line.id,
+      groupId: line.groups[0].id,
+    })
+
+    useStore.getState().clearFocus()
+    expect(useStore.getState().connect).toBeNull()
+    expect(useStore.getState().expandedLineId).toBeNull()
   })
 
   it('keeps spaces typed into a branch label', () => {

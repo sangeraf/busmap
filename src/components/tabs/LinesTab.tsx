@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { VList } from 'virtua'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { VList, type VListHandle } from 'virtua'
 import { useStore } from '../../store/useStore'
 import {
   DEFAULT_LINE_FILTERS,
@@ -12,7 +12,7 @@ import {
 import { ColorPicker } from '../ColorPicker'
 import { LineRow } from '../LineRow'
 import { LineTypeSelect } from '../LineTypeSelect'
-import type { Line, Project, TypeId } from '../../types'
+import type { Line, LineId, Project, TypeId } from '../../types'
 
 interface Draft {
   name: string
@@ -36,18 +36,25 @@ export function LinesTab({ project }: { project: Project }) {
   const setDefaultSegmentMode = useStore((s) => s.setDefaultSegmentMode)
   const routing = useStore((s) => s.routing)
   const routeStaleSegments = useStore((s) => s.routeStaleSegments)
+  const expandedLineId = useStore((s) => s.expandedLineId)
   const [filters, setFilters] = useState<LineFilters>(DEFAULT_LINE_FILTERS)
   const [draft, setDraft] = useState<Draft | null>(null)
+  const listRef = useRef<VListHandle>(null)
+  const revealed = useRef<LineId | null>(null)
 
   const lines = useMemo<Line[]>(
     () => Object.values(project.lines),
     [project.lines],
   )
   const fuse = useMemo(() => createLineFuse(lines), [lines])
-  const visible = useMemo(
-    () => filterLines(lines, filters, fuse),
-    [lines, filters, fuse],
-  )
+  const visible = useMemo(() => {
+    const matching = filterLines(lines, filters, fuse)
+    const opened = expandedLineId ? project.lines[expandedLineId] : undefined
+    // A line opened from the map is listed even when the filters hide it.
+    return opened && !matching.some((line) => line.id === opened.id)
+      ? [opened, ...matching]
+      : matching
+  }, [lines, filters, fuse, expandedLineId, project.lines])
   const types = Object.values(project.lineTypes)
   const staleCount = useMemo(
     () =>
@@ -63,6 +70,19 @@ export function LinesTab({ project }: { project: Project }) {
       ),
     [lines],
   )
+
+  // The list is virtualised, so the opened row has to be scrolled to.
+  useEffect(() => {
+    if (!expandedLineId) {
+      revealed.current = null
+      return
+    }
+    if (revealed.current === expandedLineId) return
+    const index = visible.findIndex((line) => line.id === expandedLineId)
+    if (index < 0) return
+    revealed.current = expandedLineId
+    listRef.current?.scrollToIndex(index, { align: 'center' })
+  }, [expandedLineId, visible])
 
   function patch(update: Partial<LineFilters>) {
     setFilters((current) => ({ ...current, ...update }))
@@ -239,7 +259,7 @@ export function LinesTab({ project }: { project: Project }) {
             : 'Nothing matches these filters.'}
         </p>
       ) : (
-        <VList className="min-h-0 flex-1">
+        <VList ref={listRef} className="min-h-0 flex-1">
           {visible.map((line) => (
             <LineRow key={line.id} line={line} project={project} />
           ))}

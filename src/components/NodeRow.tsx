@@ -16,7 +16,9 @@ export function NodeRow({ node, project, lineIds }: Props) {
   const updateNode = useStore((s) => s.updateNode)
   const deleteNode = useStore((s) => s.deleteNode)
   const setActiveTab = useStore((s) => s.setActiveTab)
-  const setSelectedLine = useStore((s) => s.setSelectedLine)
+  const revealLine = useStore((s) => s.revealLine)
+  const expanded = useStore((s) => s.expandedNodeId === node.id)
+  const setExpandedNode = useStore((s) => s.setExpandedNode)
   const editing = useStore((s) => s.editingNodeId === node.id)
   const setEditingNode = useStore((s) => s.setEditingNode)
   const lineCount = lineIds.length
@@ -36,7 +38,10 @@ export function NodeRow({ node, project, lineIds }: Props) {
         />
         <button
           type="button"
-          onClick={() => setSelectedNode(node.id)}
+          onClick={() => {
+            setSelectedNode(node.id)
+            setExpandedNode(expanded ? null : node.id)
+          }}
           className="min-w-0 flex-1 truncate text-left text-sm text-slate-800"
         >
           {node.name}
@@ -47,14 +52,14 @@ export function NodeRow({ node, project, lineIds }: Props) {
         </span>
         <button
           type="button"
-          onClick={() => setEditingNode(editing ? null : node.id)}
+          onClick={() => setExpandedNode(expanded ? null : node.id)}
           className="shrink-0 text-[11px] text-slate-500 hover:text-slate-900"
         >
-          {editing ? 'Close' : 'Edit'}
+          {expanded ? 'Close' : 'Details'}
         </button>
       </div>
 
-      {editing && (
+      {expanded && (
         <div className="mt-2 space-y-2">
           {lineCount > 0 && (
             <div className="flex flex-wrap gap-1">
@@ -66,7 +71,7 @@ export function NodeRow({ node, project, lineIds }: Props) {
                     key={lineId}
                     type="button"
                     onClick={() => {
-                      setSelectedLine(lineId)
+                      revealLine(lineId)
                       setActiveTab('lines')
                     }}
                     className="rounded px-1.5 py-0.5 text-[10px] text-white"
@@ -78,59 +83,91 @@ export function NodeRow({ node, project, lineIds }: Props) {
               })}
             </div>
           )}
-          <input
-            value={node.name}
-            onChange={(event) => updateNode(node.id, { name: event.target.value })}
-            className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
-          />
-          <input
-            value={node.info ?? ''}
-            onChange={(event) =>
-              updateNode(node.id, {
-                // Trimming here would swallow spaces as they are typed.
-                info: event.target.value.trim()
-                  ? event.target.value
-                  : undefined,
-              })
-            }
-            placeholder="Platform, entrance…"
-            aria-label="Extra info"
-            className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
-          />
-          <ColorPicker
-            value={node.color}
-            onChange={(color) => updateNode(node.id, { color })}
-          />
-          <div className="flex items-center gap-2 text-xs">
-            <select
-              value={node.kind}
-              onChange={(event) =>
-                updateNode(node.id, {
-                  kind: event.target.value as MapNode['kind'],
-                })
-              }
-              className="rounded border border-slate-300 px-2 py-1"
-            >
-              <option value="stop">Stop</option>
-              <option value="waypoint">Waypoint</option>
-            </select>
-            <span className="text-slate-400">
-              {node.lat.toFixed(5)}, {node.lng.toFixed(5)}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                const warning =
-                  lineCount > 0
-                    ? `Delete "${node.name}"? It is used by ${lineCount} line(s); those connections will be removed.`
-                    : `Delete "${node.name}"?`
-                if (window.confirm(warning)) deleteNode(node.id)
-              }}
-              className="ml-auto text-red-600 hover:underline"
-            >
-              Delete
-            </button>
-          </div>
+
+          {/* Editing is a deliberate second step, so a map click only looks. */}
+          {!editing ? (
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span className="truncate">
+                {node.kind === 'waypoint' ? 'Waypoint' : 'Stop'}
+                {node.info ? ` · ${node.info}` : ''}
+              </span>
+              <span className="shrink-0 text-slate-400">
+                {node.lat.toFixed(5)}, {node.lng.toFixed(5)}
+              </span>
+              <button
+                type="button"
+                onClick={() => setEditingNode(node.id)}
+                className="ml-auto shrink-0 rounded border border-slate-300 px-2 py-0.5 text-slate-700 hover:bg-slate-50"
+              >
+                Edit
+              </button>
+            </div>
+          ) : (
+            <>
+              <input
+                value={node.name}
+                onChange={(event) =>
+                  updateNode(node.id, { name: event.target.value })
+                }
+                className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+              />
+              <input
+                value={node.info ?? ''}
+                onChange={(event) =>
+                  updateNode(node.id, {
+                    // Trimming here would swallow spaces as they are typed.
+                    info: event.target.value.trim()
+                      ? event.target.value
+                      : undefined,
+                  })
+                }
+                placeholder="Platform, entrance…"
+                aria-label="Extra info"
+                className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+              />
+              <ColorPicker
+                value={node.color}
+                onChange={(color) => updateNode(node.id, { color })}
+              />
+              <div className="flex items-center gap-2 text-xs">
+                <select
+                  value={node.kind}
+                  onChange={(event) =>
+                    updateNode(node.id, {
+                      kind: event.target.value as MapNode['kind'],
+                    })
+                  }
+                  className="rounded border border-slate-300 px-2 py-1"
+                >
+                  <option value="stop">Stop</option>
+                  <option value="waypoint">Waypoint</option>
+                </select>
+                <span className="text-slate-400">
+                  {node.lat.toFixed(5)}, {node.lng.toFixed(5)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setEditingNode(null)}
+                  className="rounded border border-slate-300 px-2 py-0.5 text-slate-700 hover:bg-slate-50"
+                >
+                  Done
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const warning =
+                      lineCount > 0
+                        ? `Delete "${node.name}"? It is used by ${lineCount} line(s); those connections will be removed.`
+                        : `Delete "${node.name}"?`
+                    if (window.confirm(warning)) deleteNode(node.id)
+                  }}
+                  className="ml-auto text-red-600 hover:underline"
+                >
+                  Delete
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

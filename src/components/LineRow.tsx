@@ -68,7 +68,9 @@ export function LineRow({ line, project }: Props) {
   const setSegmentMode = useStore((s) => s.setSegmentMode)
   const setLineMode = useStore((s) => s.setLineMode)
 
-  const [expanded, setExpanded] = useState(false)
+  // Expansion lives in the store so a click on the map can open the line.
+  const expanded = useStore((s) => s.expandedLineId === line.id)
+  const setExpandedLine = useStore((s) => s.setExpandedLine)
   const [editing, setEditing] = useState(false)
 
   const type = line.typeId ? project.lineTypes[line.typeId] : undefined
@@ -91,7 +93,7 @@ export function LineRow({ line, project }: Props) {
           type="button"
           onClick={() => {
             setSelectedLine(line.id)
-            setExpanded((value) => !value)
+            setExpandedLine(expanded ? null : line.id)
           }}
           className="min-w-0 flex-1 truncate text-left text-sm text-slate-800"
         >
@@ -107,7 +109,7 @@ export function LineRow({ line, project }: Props) {
         </span>
         <button
           type="button"
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() => setExpandedLine(expanded ? null : line.id)}
           className="shrink-0 text-[11px] text-slate-500 hover:text-slate-900"
         >
           {expanded ? '▲' : '▼'}

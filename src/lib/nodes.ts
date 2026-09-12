@@ -64,20 +64,34 @@ export function nearestNode(
 }
 
 export type NodeSort = 'name' | 'created' | 'lines'
-export type KindFilter = 'all' | NodeKind
 
 export interface NodeFilters {
   query: string
-  kind: KindFilter
   sort: NodeSort
   onlyUnconnected: boolean
 }
 
 export const DEFAULT_NODE_FILTERS: NodeFilters = {
   query: '',
-  kind: 'all',
   sort: 'name',
   onlyUnconnected: false,
+}
+
+/** nodeId -> names of the lines that touch it, for searching. */
+export function buildNodeLineNames(
+  project: Project,
+  lineIndex: Map<string, string[]>,
+): Map<string, string[]> {
+  const names = new Map<string, string[]>()
+  for (const [nodeId, lineIds] of lineIndex) {
+    names.set(
+      nodeId,
+      lineIds
+        .map((lineId) => project.lines[lineId]?.name)
+        .filter((name): name is string => Boolean(name)),
+    )
+  }
+  return names
 }
 
 /** nodeId -> ids of lines that touch it. */
@@ -112,9 +126,8 @@ export function filterNodes(
   const query = filters.query.trim()
   let result = query ? fuse.search(query).map((hit) => hit.item) : nodes
 
-  if (filters.kind !== 'all') {
-    result = result.filter((node) => node.kind === filters.kind)
-  }
+  // Waypoints are map furniture; the list is about stops.
+  result = result.filter((node) => node.kind === 'stop')
   if (filters.onlyUnconnected) {
     result = result.filter((node) => !lineIndex.has(node.id))
   }
@@ -139,9 +152,20 @@ export function filterNodes(
   return sorted
 }
 
-export function createNodeFuse(nodes: MapNode[]): Fuse<MapNode> {
+/** Stops are searchable by their own text and by the lines calling at them. */
+export function createNodeFuse(
+  nodes: MapNode[],
+  lineNames?: Map<string, string[]>,
+): Fuse<MapNode> {
   return new Fuse(nodes, {
-    keys: ['name', 'info'],
+    keys: [
+      'name',
+      'info',
+      {
+        name: 'lines',
+        getFn: (node: MapNode) => lineNames?.get(node.id) ?? [],
+      },
+    ],
     threshold: 0.35,
     ignoreLocation: true,
   })

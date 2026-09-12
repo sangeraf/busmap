@@ -15,7 +15,8 @@ export default function App() {
   const setMapView = useStore((s) => s.setMapView)
   const namingNodeId = useStore((s) => s.namingNodeId)
 
-  const [legendOpen, setLegendOpen] = useState(true)
+  // The legend starts hidden; it is a lookup, not part of the editor.
+  const [legendOpen, setLegendOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
 
   useEffect(() => {
