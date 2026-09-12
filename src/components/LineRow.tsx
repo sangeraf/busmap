@@ -226,26 +226,26 @@ export function LineRow({ line, project }: Props) {
                 key={`${chain.groupId}-${chainIndex}`}
                 className="rounded border border-slate-200 p-2"
               >
-                <div className="flex items-center gap-2">
-                  {first === chainIndex && !editMode ? (
-                    <span className="min-w-0 flex-1 px-1 text-xs font-medium text-slate-700">
-                      {chain.label}
-                    </span>
-                  ) : first === chainIndex ? (
-                    <input
-                      value={chain.label}
-                      onChange={(event) =>
-                        renameBranch(line.id, chain.groupId, event.target.value)
-                      }
-                      placeholder="Branch name"
-                      title="Named after its first and last stop until you type a name; clear it to get that back"
-                      className="min-w-0 flex-1 rounded border border-transparent px-1 py-0.5 text-xs font-medium text-slate-700 hover:border-slate-300"
-                    />
-                  ) : (
-                    <span className="min-w-0 flex-1 px-1 text-xs text-slate-400">
-                      {chain.label} (detached part)
-                    </span>
-                  )}
+                {first === chainIndex && !editMode ? (
+                  <span className="block px-1 text-xs font-medium break-words text-slate-700">
+                    {chain.label}
+                  </span>
+                ) : first === chainIndex ? (
+                  <input
+                    value={chain.label}
+                    onChange={(event) =>
+                      renameBranch(line.id, chain.groupId, event.target.value)
+                    }
+                    placeholder="Branch name"
+                    title="Named after its first and last stop until you type a name; clear it to get that back"
+                    className="w-full rounded border border-transparent px-1 py-0.5 text-xs font-medium text-slate-700 hover:border-slate-300"
+                  />
+                ) : (
+                  <span className="block px-1 text-xs break-words text-slate-400">
+                    {chain.label} (detached part)
+                  </span>
+                )}
+                <div className="flex flex-wrap items-center gap-2 empty:hidden">
                   {!editMode ? null : connecting ? (
                     <button
                       type="button"
@@ -287,7 +287,7 @@ export function LineRow({ line, project }: Props) {
                             )
                           }
                         }}
-                        className="shrink-0 rounded border border-slate-300 px-1 py-1 text-[11px] text-slate-700"
+                        className="w-28 shrink-0 rounded border border-slate-300 px-1 py-1 text-[11px] text-slate-700"
                       >
                         <option value="">Merge into…</option>
                         {line.groups
