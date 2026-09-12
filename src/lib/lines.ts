@@ -215,6 +215,83 @@ export function insertStop(
 }
 
 /**
+ * Put the `source` branch after the `target` one: its connections move over
+ * and a new leg joins the target's last stop to the source's first, unless
+ * they already are the same stop. The emptied branch is dropped.
+ */
+export function mergeBranches(
+  line: Line,
+  targetGroupId: GroupId,
+  sourceGroupId: GroupId,
+  nodes: Record<NodeId, MapNode>,
+  mode: SegmentMode = 'straight',
+): void {
+  if (targetGroupId === sourceGroupId) return
+  const target = line.groups.find((group) => group.id === targetGroupId)
+  if (!target || !line.groups.some((group) => group.id === sourceGroupId)) {
+    return
+  }
+
+  const belongs = (segment: Segment, groupId: GroupId) =>
+    (segment.groupId ?? line.groups[0]?.id) === groupId
+  const targetSegments = line.segments.filter((s) => belongs(s, targetGroupId))
+  const sourceSegments = line.segments.filter((s) => belongs(s, sourceGroupId))
+
+  const tail = nodes[targetSegments[targetSegments.length - 1]?.to ?? '']
+  const head = nodes[sourceSegments[0]?.from ?? '']
+  const joint =
+    tail && head && tail.id !== head.id
+      ? createSegment(tail, head, targetGroupId, mode)
+      : null
+  if (joint && isRouted(mode)) joint.stale = true
+
+  for (const segment of sourceSegments) segment.groupId = targetGroupId
+  const rest = line.segments.filter(
+    (segment) => !sourceSegments.includes(segment),
+  )
+  const at = targetSegments.length
+    ? rest.indexOf(targetSegments[targetSegments.length - 1]) + 1
+    : rest.length
+  rest.splice(at, 0, ...(joint ? [joint] : []), ...sourceSegments)
+  line.segments = rest
+  line.groups = line.groups.filter((group) => group.id !== sourceGroupId)
+}
+
+/**
+ * Cut a branch in two at the stop the given connection starts from: that stop
+ * stays the last one of the original branch and becomes the first one of the
+ * new branch, which takes over the connections from there on.
+ */
+export function splitBranch(
+  line: Line,
+  atSegmentId: SegmentId,
+  label?: string,
+): GroupId | null {
+  const segment = line.segments.find((item) => item.id === atSegmentId)
+  if (!segment) return null
+  const groupId = segment.groupId ?? line.groups[0]?.id
+  const groupIndex = line.groups.findIndex((group) => group.id === groupId)
+  if (groupIndex < 0) return null
+
+  const group = line.groups[groupIndex]
+  const owned = line.segments.filter(
+    (item) => (item.groupId ?? line.groups[0]?.id) === groupId,
+  )
+  const at = owned.indexOf(segment)
+  // Splitting at the very first stop would leave an empty branch behind.
+  if (at <= 0) return null
+
+  const moved = owned.slice(at)
+  const created: LineGroup = {
+    id: createId('grp'),
+    label: label ?? `${group.label} (2)`,
+  }
+  for (const item of moved) item.groupId = created.id
+  line.groups.splice(groupIndex + 1, 0, created)
+  return created.id
+}
+
+/**
  * Drop one stop from a chain and heal the gap: an inner stop's two
  * connections collapse into a single `previous -> next` one, an end stop just
  * takes its only connection with it. `incomingId`/`outgoingId` identify the

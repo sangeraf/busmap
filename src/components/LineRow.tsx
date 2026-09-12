@@ -61,6 +61,8 @@ export function LineRow({ line, project }: Props) {
   const addBranch = useStore((s) => s.addBranch)
   const renameBranch = useStore((s) => s.renameBranch)
   const deleteBranch = useStore((s) => s.deleteBranch)
+  const mergeBranches = useStore((s) => s.mergeBranches)
+  const splitBranch = useStore((s) => s.splitBranch)
   const startConnecting = useStore((s) => s.startConnecting)
   const stopConnecting = useStore((s) => s.stopConnecting)
   const removeStop = useStore((s) => s.removeStop)
@@ -74,6 +76,9 @@ export function LineRow({ line, project }: Props) {
   const [editing, setEditing] = useState(false)
 
   const type = line.typeId ? project.lineTypes[line.typeId] : undefined
+  // Expanding a line only shows it; its controls wait for Edit (or for a
+  // connect run already targeting this line, which is an edit in progress).
+  const editMode = editing || connect?.lineId === line.id
   const chains = lineChains(line)
   const stopCount = lineStopIds(line).length
   const length = lineLengthM(line, project.nodes)
@@ -130,47 +135,51 @@ export function LineRow({ line, project }: Props) {
             >
               {editing ? 'Done' : 'Edit'}
             </button>
-            <button
-              type="button"
-              onClick={() => addBranch(line.id)}
-              className="text-slate-600 hover:underline"
-            >
-              + Branch
-            </button>
-            <button
-              type="button"
-              title="Route every connection of this line along roads"
-              onClick={() => setLineMode(line.id, 'road')}
-              className="text-slate-600 hover:underline"
-            >
-              All via roads
-            </button>
-            <button
-              type="button"
-              title="Route every connection of this line along rail tracks"
-              onClick={() => setLineMode(line.id, 'rail')}
-              className="text-slate-600 hover:underline"
-            >
-              All via rails
-            </button>
-            <button
-              type="button"
-              title="Turn every connection of this line into a straight line"
-              onClick={() => setLineMode(line.id, 'straight')}
-              className="text-slate-600 hover:underline"
-            >
-              All straight
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm(`Delete line "${line.name}"?`))
-                  deleteLine(line.id)
-              }}
-              className="ml-auto text-red-600 hover:underline"
-            >
-              Delete line
-            </button>
+            {editMode && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => addBranch(line.id)}
+                  className="text-slate-600 hover:underline"
+                >
+                  + Branch
+                </button>
+                <button
+                  type="button"
+                  title="Route every connection of this line along roads"
+                  onClick={() => setLineMode(line.id, 'road')}
+                  className="text-slate-600 hover:underline"
+                >
+                  All via roads
+                </button>
+                <button
+                  type="button"
+                  title="Route every connection of this line along rail tracks"
+                  onClick={() => setLineMode(line.id, 'rail')}
+                  className="text-slate-600 hover:underline"
+                >
+                  All via rails
+                </button>
+                <button
+                  type="button"
+                  title="Turn every connection of this line into a straight line"
+                  onClick={() => setLineMode(line.id, 'straight')}
+                  className="text-slate-600 hover:underline"
+                >
+                  All straight
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm(`Delete line "${line.name}"?`))
+                      deleteLine(line.id)
+                  }}
+                  className="ml-auto text-red-600 hover:underline"
+                >
+                  Delete line
+                </button>
+              </>
+            )}
           </div>
 
           {editing && (
@@ -218,7 +227,11 @@ export function LineRow({ line, project }: Props) {
                 className="rounded border border-slate-200 p-2"
               >
                 <div className="flex items-center gap-2">
-                  {first === chainIndex ? (
+                  {first === chainIndex && !editMode ? (
+                    <span className="min-w-0 flex-1 px-1 text-xs font-medium text-slate-700">
+                      {chain.label}
+                    </span>
+                  ) : first === chainIndex ? (
                     <input
                       value={chain.label}
                       onChange={(event) =>
@@ -232,7 +245,7 @@ export function LineRow({ line, project }: Props) {
                       {chain.label} (detached part)
                     </span>
                   )}
-                  {connecting ? (
+                  {!editMode ? null : connecting ? (
                     <button
                       type="button"
                       onClick={() => stopConnecting()}
@@ -258,7 +271,34 @@ export function LineRow({ line, project }: Props) {
                       {chain.segments.length === 0 ? 'Add stops' : '+ at start'}
                     </button>
                   )}
-                  {first === chainIndex && (
+                  {editMode &&
+                    first === chainIndex &&
+                    line.groups.length > 1 && (
+                      <select
+                        value=""
+                        title="Append this branch to another one, connecting their ends"
+                        onChange={(event) => {
+                          if (event.target.value) {
+                            mergeBranches(
+                              line.id,
+                              event.target.value,
+                              chain.groupId,
+                            )
+                          }
+                        }}
+                        className="shrink-0 rounded border border-slate-300 px-1 py-1 text-[11px] text-slate-700"
+                      >
+                        <option value="">Merge into…</option>
+                        {line.groups
+                          .filter((group) => group.id !== chain.groupId)
+                          .map((group) => (
+                            <option key={group.id} value={group.id}>
+                              {group.label || 'Branch'}
+                            </option>
+                          ))}
+                      </select>
+                    )}
+                  {editMode && first === chainIndex && (
                     <button
                       type="button"
                       title="Delete this branch and all its connections"
@@ -330,7 +370,23 @@ export function LineRow({ line, project }: Props) {
                             <NodeInfo info={node?.info} />
                           </button>
                           <span className="flex shrink-0 items-center gap-1 text-slate-400">
-                            {incoming ? (
+                            {!editMode ? (
+                              <span
+                                className={`w-3 ${
+                                  incoming && incoming.mode !== 'straight'
+                                    ? incoming.stale ||
+                                      incoming.distanceM === undefined
+                                      ? 'text-amber-500'
+                                      : 'text-emerald-600'
+                                    : ''
+                                }`}
+                                title={
+                                  incoming ? legTitle(incoming) : undefined
+                                }
+                              >
+                                {incoming ? MODE_GLYPH[incoming.mode] : ''}
+                              </span>
+                            ) : incoming ? (
                               <button
                                 type="button"
                                 title={legTitle(incoming)}
@@ -355,7 +411,7 @@ export function LineRow({ line, project }: Props) {
                             ) : (
                               <span className="w-3" />
                             )}
-                            {index > 0 ? (
+                            {!editMode ? null : index > 0 ? (
                               <button
                                 type="button"
                                 title="Move earlier"
@@ -369,7 +425,8 @@ export function LineRow({ line, project }: Props) {
                             ) : (
                               <span className="w-3" />
                             )}
-                            {index < chain.nodeIds.length - 1 ? (
+                            {!editMode ? null : index <
+                              chain.nodeIds.length - 1 ? (
                               <button
                                 type="button"
                                 title="Move later"
@@ -383,41 +440,59 @@ export function LineRow({ line, project }: Props) {
                             ) : (
                               <span className="w-3" />
                             )}
-                            <button
-                              type="button"
-                              title={
-                                outgoing
-                                  ? 'Insert stops after this one'
-                                  : 'Continue the branch from this stop'
-                              }
-                              onClick={() =>
-                                startConnecting(line.id, chain.groupId, {
-                                  anchorId: nodeId,
-                                  bridgeId: outgoing?.id ?? null,
-                                })
-                              }
-                              className="hover:text-blue-600"
-                            >
-                              +
-                            </button>
-                            <button
-                              type="button"
-                              title={
-                                incoming && outgoing
-                                  ? 'Remove stop and connect its neighbours'
-                                  : 'Remove stop from this branch'
-                              }
-                              onClick={() =>
-                                removeStop(
-                                  line.id,
-                                  incoming?.id ?? null,
-                                  outgoing?.id ?? null,
-                                )
-                              }
-                              className="hover:text-red-600"
-                            >
-                              ✕
-                            </button>
+                            {editMode && (
+                              <>
+                                <button
+                                  type="button"
+                                  title={
+                                    outgoing
+                                      ? 'Insert stops after this one'
+                                      : 'Continue the branch from this stop'
+                                  }
+                                  onClick={() =>
+                                    startConnecting(line.id, chain.groupId, {
+                                      anchorId: nodeId,
+                                      bridgeId: outgoing?.id ?? null,
+                                    })
+                                  }
+                                  className="hover:text-blue-600"
+                                >
+                                  +
+                                </button>
+                                {incoming && outgoing ? (
+                                  <button
+                                    type="button"
+                                    title="Split the branch here; this stop ends the first one and starts the second"
+                                    onClick={() =>
+                                      splitBranch(line.id, outgoing.id)
+                                    }
+                                    className="hover:text-blue-600"
+                                  >
+                                    ✂
+                                  </button>
+                                ) : (
+                                  <span className="w-3" />
+                                )}
+                                <button
+                                  type="button"
+                                  title={
+                                    incoming && outgoing
+                                      ? 'Remove stop and connect its neighbours'
+                                      : 'Remove stop from this branch'
+                                  }
+                                  onClick={() =>
+                                    removeStop(
+                                      line.id,
+                                      incoming?.id ?? null,
+                                      outgoing?.id ?? null,
+                                    )
+                                  }
+                                  className="hover:text-red-600"
+                                >
+                                  ✕
+                                </button>
+                              </>
+                            )}
                           </span>
                         </li>
                       )

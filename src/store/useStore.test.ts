@@ -2,6 +2,7 @@ import polyline from '@mapbox/polyline'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setStorageBackend, useStore } from './useStore'
 import { STOP_COLOR, WAYPOINT_COLOR } from '../lib/nodes'
+import { lineChains } from '../lib/lines'
 import { clearRouteCache } from '../lib/routing'
 import { clearRailCache } from '../lib/rail'
 import { parseProjectFile } from '../lib/exchange'
@@ -230,6 +231,37 @@ describe('workspace store', () => {
 
     useStore.getState().renameBranch(line.id, groupId, 'Centre → Station')
     expect(activeLine(line.id).groups[0].label).toBe('Centre → Station')
+  })
+
+  it('splits a branch at a stop and merges the halves back together', () => {
+    const store = useStore.getState()
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.51, 19.01)
+    const c = store.addNode('stop', 47.52, 19.02)
+    const line = store.addLine({ name: '7' })
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectTo(a.id)
+    useStore.getState().connectTo(b.id)
+    useStore.getState().connectTo(c.id)
+
+    useStore.getState().splitBranch(line.id, activeLine(line.id).segments[1].id)
+    const [first, second] = activeLine(line.id).groups
+    expect(activeLine(line.id).groups).toHaveLength(2)
+    expect(
+      lineChains(activeLine(line.id)).map((chain) => chain.nodeIds),
+    ).toEqual([
+      [a.id, b.id],
+      [b.id, c.id],
+    ])
+
+    useStore.getState().mergeBranches(line.id, first.id, second.id)
+    expect(activeLine(line.id).groups).toHaveLength(1)
+    expect(activeLine(line.id).segments).toHaveLength(2)
+    expect(lineChains(activeLine(line.id))[0].nodeIds).toEqual([
+      a.id,
+      b.id,
+      c.id,
+    ])
   })
 
   it('chains clicked stops into directed segments', () => {

@@ -33,9 +33,11 @@ import {
   createLineType,
   createSegment,
   insertStop,
+  mergeBranches,
   removeChainStop,
   removeNodeFromLine,
   moveChainStop,
+  splitBranch,
 } from '../lib/lines'
 import { createId } from '../lib/id'
 import {
@@ -178,6 +180,14 @@ interface StoreState {
   addBranch: (lineId: LineId) => void
   renameBranch: (lineId: LineId, groupId: GroupId, label: string) => void
   deleteBranch: (lineId: LineId, groupId: GroupId) => void
+  /** Append the source branch to the target one, joining their ends. */
+  mergeBranches: (
+    lineId: LineId,
+    targetGroupId: GroupId,
+    sourceGroupId: GroupId,
+  ) => void
+  /** Cut a branch at the stop the given connection leaves from. */
+  splitBranch: (lineId: LineId, atSegmentId: SegmentId) => void
   startConnecting: (
     lineId: LineId,
     groupId: GroupId,
@@ -908,6 +918,38 @@ export const useStore = create<StoreState>((set, get) => {
       if (connect?.lineId === lineId && connect.groupId === groupId) {
         set({ connect: null })
       }
+    },
+
+    mergeBranches: (lineId, targetGroupId, sourceGroupId) => {
+      commit((workspace) => {
+        const project = activeProject(workspace)
+        const line = project?.lines[lineId]
+        if (!project || !line) return
+        mergeBranches(
+          line,
+          targetGroupId,
+          sourceGroupId,
+          project.nodes,
+          get().defaultSegmentMode,
+        )
+        project.updatedAt = new Date().toISOString()
+      })
+      const { connect } = get()
+      if (connect?.lineId === lineId && connect.groupId === sourceGroupId) {
+        set({ connect: null })
+      }
+      void get().routeStaleSegments()
+    },
+
+    splitBranch: (lineId, atSegmentId) => {
+      commit((workspace) => {
+        const project = activeProject(workspace)
+        const line = project?.lines[lineId]
+        if (!project || !line) return
+        splitBranch(line, atSegmentId)
+        project.updatedAt = new Date().toISOString()
+      })
+      if (get().connect?.lineId === lineId) set({ connect: null })
     },
 
     renameBranch: (lineId, groupId, label) =>

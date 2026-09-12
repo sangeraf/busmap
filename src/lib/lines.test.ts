@@ -11,9 +11,11 @@ import {
   lineLengthM,
   insertStop,
   lineStopIds,
+  mergeBranches,
   removeChainStop,
   removeNodeFromLine,
   moveChainStop,
+  splitBranch,
 } from './lines'
 import type { Line, MapNode } from '../types'
 
@@ -91,6 +93,79 @@ describe('lineChains', () => {
 function nodeMap(nodes: MapNode[]): Record<string, MapNode> {
   return Object.fromEntries(nodes.map((node) => [node.id, node]))
 }
+
+describe('mergeBranches', () => {
+  it('appends a branch and joins the two ends with a connection', () => {
+    const nodes = stops(4)
+    const line = createLine({ name: '7' })
+    const first = line.groups[0].id
+    line.groups.push({ id: 'grp-second', label: 'Branch 2' })
+    chained(line, nodes.slice(0, 2), first)
+    chained(line, nodes.slice(2), 'grp-second')
+
+    mergeBranches(line, first, 'grp-second', nodeMap(nodes))
+
+    expect(line.groups).toHaveLength(1)
+    const chains = lineChains(line)
+    expect(chains).toHaveLength(1)
+    expect(chains[0].nodeIds).toEqual(nodes.map((node) => node.id))
+  })
+
+  it('needs no joining connection when the ends are the same stop', () => {
+    const nodes = stops(3)
+    const line = createLine({ name: '7' })
+    const first = line.groups[0].id
+    line.groups.push({ id: 'grp-second', label: 'Branch 2' })
+    line.segments.push(createSegment(nodes[0], nodes[1], first))
+    line.segments.push(createSegment(nodes[1], nodes[2], 'grp-second'))
+
+    mergeBranches(line, first, 'grp-second', nodeMap(nodes))
+
+    expect(line.segments).toHaveLength(2)
+    expect(lineChains(line)[0].nodeIds).toEqual(nodes.map((node) => node.id))
+  })
+
+  it('marks the joining connection stale when it is routed', () => {
+    const nodes = stops(4)
+    const line = createLine({ name: '7' })
+    const first = line.groups[0].id
+    line.groups.push({ id: 'grp-second', label: 'Branch 2' })
+    chained(line, nodes.slice(0, 2), first)
+    chained(line, nodes.slice(2), 'grp-second')
+
+    mergeBranches(line, first, 'grp-second', nodeMap(nodes), 'road')
+
+    const joint = line.segments[1]
+    expect(joint.mode).toBe('road')
+    expect(joint.stale).toBe(true)
+  })
+})
+
+describe('splitBranch', () => {
+  it('keeps the split stop at the end of one branch and the start of the other', () => {
+    const nodes = stops(4)
+    const line = createLine({ name: '7' })
+    chained(line, nodes, line.groups[0].id)
+
+    const created = splitBranch(line, line.segments[2].id)
+
+    expect(created).toBeTruthy()
+    expect(line.groups).toHaveLength(2)
+    const chains = lineChains(line)
+    expect(chains[0].nodeIds).toEqual([nodes[0].id, nodes[1].id, nodes[2].id])
+    expect(chains[1].nodeIds).toEqual([nodes[2].id, nodes[3].id])
+    expect(line.segments).toHaveLength(3)
+  })
+
+  it('refuses to split at the first stop of a branch', () => {
+    const nodes = stops(3)
+    const line = createLine({ name: '7' })
+    chained(line, nodes, line.groups[0].id)
+
+    expect(splitBranch(line, line.segments[0].id)).toBeNull()
+    expect(line.groups).toHaveLength(1)
+  })
+})
 
 describe('insertStop', () => {
   it('splits a connection in two and keeps threading further stops', () => {
