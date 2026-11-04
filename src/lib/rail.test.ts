@@ -162,7 +162,7 @@ describe('rail', () => {
     expect(progress[0]).toContain('Downloading rail tracks')
 
     await railRoute([47.5, 19.01], [47.5, 19.02])
-    expect(mock).toHaveBeenCalledTimes(1)
+    expect(overpassCalls(mock)).toHaveLength(1)
   })
 
   it('downloads shared tracks once for legs routed at the same time', async () => {
@@ -172,7 +172,7 @@ describe('rail', () => {
       railRoute([47.5, 19.01], [47.5, 19.02]),
       railRoute([47.5, 19.0], [47.5, 19.02]),
     ])
-    expect(mock).toHaveBeenCalledTimes(1)
+    expect(overpassCalls(mock)).toHaveLength(1)
   })
 
   it('moves on to another server when one times out or is busy', async () => {
@@ -221,6 +221,16 @@ describe('rail', () => {
     // The other direction is shorter, so it is used the right way round.
     expect(route.distanceM).toBe(1600)
     expect(route.geometry[0]).toEqual([47.5, 19.0])
+    expect(route.geometry.at(-1)).toEqual([47.5, 19.02])
+  })
+
+  it('uses the rail router while the track servers are still busy', async () => {
+    stubFetch(
+      () => new Promise(() => undefined),
+      () => ok(routerBody(NORTH, 1600)),
+    )
+    const route = await railRoute([47.5, 19.0], [47.5, 19.02])
+    expect(route.distanceM).toBe(1600)
     expect(route.geometry.at(-1)).toEqual([47.5, 19.02])
   })
 

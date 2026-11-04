@@ -48,6 +48,7 @@ const BRIDGE_RADIUS_M = 15
 const GRID_DEG = 0.003
 const MAX_EXPANSIONS = 2_000_000
 const YIELD_EVERY = 20_000
+const TRACK_GRACE_MS = 1500
 const M_PER_DEG = 111320
 
 export type RailProgress = (message: string) => void
@@ -135,6 +136,10 @@ export function withTimeout(ms: number, signal?: AbortSignal): AbortSignal {
   if (signal?.aborted) forward()
   else signal?.addEventListener('abort', forward, { once: true })
   return controller.signal
+}
+
+function sleep(ms: number): Promise<null> {
+  return new Promise((resolve) => setTimeout(() => resolve(null), ms))
 }
 
 function isTimeout(error: unknown): boolean {
@@ -719,9 +724,14 @@ export async function railRoute(
 
   let failure = 'No rail route between these stops'
   let downloaded = true
+  let settled = false
+  const report = (message: string) => {
+    if (!settled) onProgress?.(message)
+  }
+  const trackOptions: RailOptions = { signal, onProgress: report }
   const search = async (wanted: Block[], bridges: boolean) => {
-    await loadBlocks(wanted, options)
-    onProgress?.('Searching the track network…')
+    await loadBlocks(wanted, trackOptions)
+    report('Searching the track network…')
     const result = await searchPath(network, from, to, {
       blocks: new Set(wanted.map(blockKey)),
       bridges,
@@ -735,31 +745,60 @@ export async function railRoute(
   }
 
   const noTrack = () => failure === 'No rail track near this stop'
-  try {
-    const found =
-      (await search(narrow, false)) ??
-      (noTrack() ? null : await search(narrow, true))
-    if (found) return found
-  } catch (error) {
-    if (signal?.aborted) throw error
-    failure = error instanceof Error ? error.message : String(error)
-    downloaded = false
-  }
-
-  onProgress?.('Asking the signal.eu.org rail router…')
-  const routed = await routerRoute(from, to, signal)
-  if (routed) return routed
-
-  if (downloaded && !noTrack()) {
+  // Track servers can take minutes to fail one after another, so the train
+  // router is asked at the same time; neither promise rejects.
+  const tracks = (async (): Promise<RailRoute | null> => {
     try {
-      const found = await search(wide, true)
-      if (found) return found
+      return (
+        (await search(narrow, false)) ??
+        (noTrack() ? null : await search(narrow, true))
+      )
     } catch (error) {
-      if (signal?.aborted) throw error
       failure = error instanceof Error ? error.message : String(error)
+      downloaded = false
+      return null
     }
+  })()
+  const routed = routerRoute(from, to, signal).catch(() => null)
+
+  try {
+    const first = await Promise.race([
+      tracks.then((route) => ({ from: 'tracks' as const, route })),
+      routed.then((route) => ({ from: 'router' as const, route })),
+    ])
+    if (signal?.aborted) throw signal.reason
+    if (first.route && first.from === 'tracks') return first.route
+    if (first.route) {
+      // Tracks already downloaded are usually more precise; give them a
+      // moment before settling for the router's answer.
+      const local = await Promise.race([tracks, sleep(TRACK_GRACE_MS)])
+      if (signal?.aborted) throw signal.reason
+      return local ?? first.route
+    }
+    if (first.from === 'router') {
+      report('Waiting for the rail track servers…')
+      const local = await tracks
+      if (signal?.aborted) throw signal.reason
+      if (local) return local
+    } else {
+      report('Waiting for the signal.eu.org rail router…')
+      const route = await routed
+      if (signal?.aborted) throw signal.reason
+      if (route) return route
+    }
+
+    if (downloaded && !noTrack()) {
+      const found = await search(wide, true).catch((error: unknown) => {
+        if (signal?.aborted) throw error
+        failure = error instanceof Error ? error.message : String(error)
+        return null
+      })
+      if (found) return found
+    }
+    throw new Error(
+      downloaded ? failure : `${failure}, and the rail router found no route`,
+    )
+  } finally {
+    settled = true
   }
-  throw new Error(
-    downloaded ? failure : `${failure}, and the rail router found no route`,
-  )
 }
