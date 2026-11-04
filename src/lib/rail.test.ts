@@ -249,6 +249,32 @@ describe('rail', () => {
     expect(route.geometry.at(-1)).toEqual([47.5, 19.02])
   })
 
+  it('gives up soon when the router finds no track and the servers hang', async () => {
+    vi.useFakeTimers()
+    try {
+      stubFetch(
+        () => new Promise(() => undefined),
+        () =>
+          ok(
+            routerBody(
+              [
+                [47.52, 19.0],
+                [47.52, 19.02],
+              ],
+              1600,
+            ),
+          ),
+      )
+      const result = railRoute([47.5, 19.0], [47.5, 19.02]).catch(
+        (error: Error) => error,
+      )
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(String(await result)).toContain('No rail track near this stop')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('rejects a rail router detour and reports why the tracks failed', async () => {
     stubFetch(
       () => new TypeError('Failed to fetch'),

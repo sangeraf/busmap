@@ -48,6 +48,7 @@ const GRID_DEG = 0.003
 const MAX_EXPANSIONS = 2_000_000
 const YIELD_EVERY = 20_000
 const TRACK_GRACE_MS = 1500
+const ROUTER_MISS_GRACE_MS = 6000
 const M_PER_DEG = 111320
 
 export type RailProgress = (message: string) => void
@@ -172,7 +173,7 @@ async function withSlot<T>(task: () => Promise<T>): Promise<T> {
   } finally {
     const next = slotQueue.shift()
     if (next) next()
-    else busySlots -= 1
+    else busySlots = Math.max(0, busySlots - 1)
   }
 }
 
@@ -403,6 +404,8 @@ export function clearRailCache(): void {
   blocks.clear()
   cooldownUntil.clear()
   preferredServer = 0
+  busySlots = 0
+  slotQueue.length = 0
 }
 
 /** Block rectangle fetched with one query. */
@@ -659,6 +662,16 @@ export function pathLengthM(path: LatLng[]): number {
 }
 
 /**
+ * Why the rail router's answer was not used: it found no track near a stop,
+ * only a long detour, or (null) it could not be asked at all.
+ */
+type RouterMiss = 'off-track' | 'detour' | null
+
+function isRoute(result: RailRoute | RouterMiss): result is RailRoute {
+  return typeof result === 'object' && result !== null
+}
+
+/**
  * Route from BRouter's public `rail` profile, which answers browsers (CORS)
  * unlike most rail routers. It snaps far-away points onto any track, so a
  * route whose ends are not near the stops, or that is a long detour, is
@@ -668,7 +681,7 @@ async function routerRoute(
   from: LatLng,
   to: LatLng,
   signal?: AbortSignal,
-): Promise<RailRoute | null> {
+): Promise<RailRoute | RouterMiss> {
   const lonlats = `${from[1]},${from[0]}|${to[1]},${to[0]}`
   const url = `${RAIL_ROUTER_URL}?lonlats=${lonlats}&profile=rail&alternativeidx=0&format=geojson`
   let body: RouterResponse
@@ -691,14 +704,14 @@ async function routerRoute(
     distanceM(from, geometry[0]) > SNAP_RADIUS_M ||
     distanceM(to, geometry[geometry.length - 1]) > SNAP_RADIUS_M
   ) {
-    return null
+    return 'off-track'
   }
   const length = Number(feature?.properties?.['track-length'])
   const route = {
     geometry,
     distanceM: Number.isFinite(length) && length > 0 ? length : pathLengthM(geometry),
   }
-  if (route.distanceM > distanceM(from, to) * 4 + 2000) return null
+  if (route.distanceM > distanceM(from, to) * 4 + 2000) return 'detour'
   return route
 }
 
@@ -748,6 +761,7 @@ export async function railRoute(
   const noTrack = () => failure === 'No rail track near this stop'
   // Track servers can take minutes to fail one after another, so the train
   // router is asked at the same time; neither promise rejects.
+  let tracksDone = false
   const tracks = (async (): Promise<RailRoute | null> => {
     try {
       return (
@@ -758,6 +772,8 @@ export async function railRoute(
       failure = error instanceof Error ? error.message : String(error)
       downloaded = false
       return null
+    } finally {
+      tracksDone = true
     }
   })()
   const routed = routerRoute(from, to, signal).catch(() => null)
@@ -768,15 +784,30 @@ export async function railRoute(
       routed.then((route) => ({ from: 'router' as const, route })),
     ])
     if (signal?.aborted) throw signal.reason
-    if (first.route && first.from === 'tracks') return first.route
-    if (first.route) {
+    if (first.from === 'tracks' && first.route) return first.route
+    if (first.from === 'router' && isRoute(first.route)) {
       // Tracks already downloaded are usually more precise; give them a
       // moment before settling for the router's answer.
       const local = await Promise.race([tracks, sleep(TRACK_GRACE_MS)])
       if (signal?.aborted) throw signal.reason
       return local ?? first.route
     }
-    if (first.from === 'router') {
+    if (first.from === 'router' && first.route) {
+      // The router saw the tracks and found nothing usable; slow track
+      // servers get a short while to disagree before giving up.
+      const miss = first.route
+      report('Checking the rail tracks…')
+      const local = await Promise.race([tracks, sleep(ROUTER_MISS_GRACE_MS)])
+      if (signal?.aborted) throw signal.reason
+      if (local) return local
+      if (!tracksDone) {
+        throw new Error(
+          miss === 'off-track'
+            ? 'No rail track near this stop'
+            : 'No rail route between these stops',
+        )
+      }
+    } else if (first.from === 'router') {
       report('Waiting for the rail track servers…')
       const local = await tracks
       if (signal?.aborted) throw signal.reason
@@ -785,7 +816,7 @@ export async function railRoute(
       report('Waiting for the BRouter rail router…')
       const route = await routed
       if (signal?.aborted) throw signal.reason
-      if (route) return route
+      if (isRoute(route)) return route
     }
 
     if (downloaded && !noTrack()) {
