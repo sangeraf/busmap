@@ -1,6 +1,6 @@
 import polyline from '@mapbox/polyline'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setStorageBackend, useStore } from './useStore'
+import { IDLE_ROUTING, setStorageBackend, useStore } from './useStore'
 import { STOP_COLOR, WAYPOINT_COLOR } from '../lib/nodes'
 import { lineChains } from '../lib/lines'
 import { clearRouteCache } from '../lib/routing'
@@ -54,7 +54,7 @@ describe('workspace store', () => {
     clearRailCache()
     useStore.setState({
       defaultSegmentMode: 'straight',
-      routing: { pending: 0, failed: 0, error: null },
+      routing: IDLE_ROUTING,
     })
     vi.unstubAllGlobals()
   })
@@ -613,10 +613,58 @@ describe('workspace store', () => {
     useStore.getState().setSegmentMode(line.id, segmentId, 'road')
     await useStore.getState().routeStaleSegments()
 
-    expect(activeLine(line.id).segments[0].stale).toBe(true)
+    const failed = activeLine(line.id).segments[0]
+    expect(failed.stale).toBe(true)
+    expect(failed.routeError).toBe('no route')
+    expect(failed.geometry).toEqual([])
     expect(useStore.getState().routing.failed).toBe(1)
     expect(useStore.getState().routing.pending).toBe(0)
+    expect(useStore.getState().routing.total).toBe(0)
     expect(useStore.getState().routing.error).toContain('could not be routed')
+    expect(useStore.getState().routing.error).toContain('no route')
+
+    // Edits elsewhere do not retry it; asking to does.
+    const fetchMock = vi.mocked(fetch)
+    const calls = fetchMock.mock.calls.length
+    await useStore.getState().routeStaleSegments()
+    expect(fetchMock.mock.calls.length).toBe(calls)
+    await useStore.getState().routeStaleSegments({ retryFailed: true })
+    expect(fetchMock.mock.calls.length).toBe(calls + 1)
+  })
+
+  it('cancels a running routing and leaves the connection unrouted', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () =>
+              reject(new DOMException('cancelled', 'AbortError')),
+            )
+          }),
+      ),
+    )
+
+    const store = useStore.getState()
+    store.setDefaultSegmentMode('road')
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.51, 19.01)
+    const line = store.addLine({ name: '11' })
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectTo(a.id)
+    useStore.getState().connectTo(b.id)
+
+    const run = useStore.getState().routeStaleSegments()
+    await vi.waitFor(() => expect(useStore.getState().routing.pending).toBe(1))
+    useStore.getState().cancelRouting()
+    await run
+
+    const segment = activeLine(line.id).segments[0]
+    expect(segment.distanceM).toBeUndefined()
+    expect(segment.routeError).toBeUndefined()
+    expect(useStore.getState().routing.pending).toBe(0)
+    expect(useStore.getState().routing.failed).toBe(0)
+    expect(useStore.getState().routing.error).toBe('Routing was cancelled')
   })
 
   it('draws a rail connection along the tracks around the stops', async () => {

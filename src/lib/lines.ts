@@ -201,6 +201,7 @@ export function applySegmentMode(
 ): void {
   if (segment.mode === mode) return
   segment.mode = mode
+  delete segment.routeError
   if (isRouted(mode)) {
     segment.geometry = []
     segment.distanceM = undefined
@@ -395,6 +396,7 @@ export function removeNodeFromLine(
 function restitchGeometry(segment: Segment, nodes: Record<NodeId, MapNode>) {
   if (isRouted(segment.mode)) {
     segment.stale = true
+    delete segment.routeError
     return
   }
   const from = nodes[segment.from]

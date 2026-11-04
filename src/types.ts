@@ -39,6 +39,9 @@ export interface Segment {
   durationS?: number
   groupId?: GroupId
   stale?: boolean
+  /** Why the last routing attempt failed; the leg is drawn straight until a
+   * retry succeeds or one of its stops moves. */
+  routeError?: string
 }
 
 export interface LineGroup {
