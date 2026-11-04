@@ -1,4 +1,3 @@
-import polyline from '@mapbox/polyline'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   OVERPASS_URLS,
@@ -51,9 +50,16 @@ function network(...ways: LatLng[][]): TrackNetwork {
 
 function routerBody(geometry: LatLng[], distance: number) {
   return {
-    code: 'Ok',
-    routes: [{ geometry: polyline.encode(geometry, 6), distance }],
-    waypoints: [{ distance: 5 }, { distance: 5 }],
+    type: 'FeatureCollection',
+    features: [
+      {
+        properties: { 'track-length': String(distance) },
+        geometry: {
+          type: 'LineString',
+          coordinates: geometry.map(([lat, lng]) => [lng, lat, 100]),
+        },
+      },
+    ],
   }
 }
 
@@ -200,28 +206,37 @@ describe('rail', () => {
   })
 
   it('falls back to the rail router when no track server answers', async () => {
-    const forward: LatLng[] = [
-      [47.5, 19.0],
-      [47.51, 19.01],
-      [47.5, 19.02],
-    ]
-    const backward: LatLng[] = [
-      [47.5, 19.02],
-      [47.5, 19.01],
-      [47.5, 19.0],
-    ]
-    stubFetch(
+    const mock = stubFetch(
       () => ({ ok: false, status: 504 }),
-      (url) =>
-        url.includes(`/19,47.5;`)
-          ? ok(routerBody(forward, 3200))
-          : ok(routerBody(backward, 1600)),
+      () => ok(routerBody(NORTH, 1600)),
     )
     const route = await railRoute([47.5, 19.0], [47.5, 19.02])
-    // The other direction is shorter, so it is used the right way round.
     expect(route.distanceM).toBe(1600)
-    expect(route.geometry[0]).toEqual([47.5, 19.0])
-    expect(route.geometry.at(-1)).toEqual([47.5, 19.02])
+    expect(route.geometry).toEqual(NORTH)
+    const [routerUrl] = mock.mock.calls.find(([url]) =>
+      url.startsWith(RAIL_ROUTER_URL),
+    )!
+    expect(routerUrl).toContain('lonlats=19,47.5|19.02,47.5')
+    expect(routerUrl).toContain('profile=rail')
+  })
+
+  it('rejects a rail route that snapped far away from the stops', async () => {
+    stubFetch(
+      () => ({ ok: false, status: 504 }),
+      () =>
+        ok(
+          routerBody(
+            [
+              [47.52, 19.0],
+              [47.52, 19.02],
+            ],
+            1600,
+          ),
+        ),
+    )
+    await expect(railRoute([47.5, 19.0], [47.5, 19.02])).rejects.toThrow(
+      /the rail router found no route/,
+    )
   })
 
   it('uses the rail router while the track servers are still busy', async () => {

@@ -1,4 +1,3 @@
-import polyline from '@mapbox/polyline'
 import { distanceM } from './nodes'
 import type { LatLng } from '../types'
 
@@ -16,7 +15,7 @@ export const OVERPASS_URLS = [
   'https://overpass.kumi.systems/api/interpreter',
 ]
 
-export const RAIL_ROUTER_URL = 'https://signal.eu.org/osm/eu/route/v1/train'
+export const RAIL_ROUTER_URL = 'https://brouter.de/brouter'
 
 /** Track kinds a line may run on; every kind is routable by default. */
 export const RAIL_TYPES = [
@@ -86,9 +85,10 @@ interface OverpassResponse {
 }
 
 interface RouterResponse {
-  code: string
-  routes?: { geometry: string; distance: number }[]
-  waypoints?: { distance: number }[]
+  features?: {
+    geometry?: { coordinates?: number[][] }
+    properties?: { 'track-length'?: string }
+  }[]
 }
 
 /** Errors that another Overpass server would answer the same way. */
@@ -659,46 +659,47 @@ export function pathLengthM(path: LatLng[]): number {
 }
 
 /**
- * Route from the signal.eu.org rail router. It honours track direction, so
- * both directions are asked and the shorter one is kept, and a route that is
- * still a long detour (a loop the wrong way round) is rejected.
+ * Route from BRouter's public `rail` profile, which answers browsers (CORS)
+ * unlike most rail routers. It snaps far-away points onto any track, so a
+ * route whose ends are not near the stops, or that is a long detour, is
+ * rejected.
  */
 async function routerRoute(
   from: LatLng,
   to: LatLng,
   signal?: AbortSignal,
 ): Promise<RailRoute | null> {
-  const ask = async (a: LatLng, b: LatLng): Promise<RailRoute | null> => {
-    const url = `${RAIL_ROUTER_URL}/${a[1]},${a[0]};${b[1]},${b[0]}?overview=full&geometries=polyline6`
-    try {
-      const response = await fetch(url, {
-        signal: withTimeout(ROUTER_TIMEOUT_MS, signal),
-      })
-      if (!response.ok) return null
-      const body = (await response.json()) as RouterResponse
-      const route = body.routes?.[0]
-      if (body.code !== 'Ok' || !route) return null
-      if (body.waypoints?.some((point) => point.distance > SNAP_RADIUS_M)) {
-        return null
-      }
-      return {
-        geometry: polyline.decode(route.geometry, 6) as LatLng[],
-        distanceM: route.distance,
-      }
-    } catch (error) {
-      if (signal?.aborted) throw error
-      return null
-    }
+  const lonlats = `${from[1]},${from[0]}|${to[1]},${to[0]}`
+  const url = `${RAIL_ROUTER_URL}?lonlats=${lonlats}&profile=rail&alternativeidx=0&format=geojson`
+  let body: RouterResponse
+  try {
+    const response = await fetch(url, {
+      signal: withTimeout(ROUTER_TIMEOUT_MS, signal),
+    })
+    if (!response.ok) return null
+    body = (await response.json()) as RouterResponse
+  } catch (error) {
+    if (signal?.aborted) throw error
+    return null
   }
-  const [forward, backward] = await Promise.all([ask(from, to), ask(to, from)])
-  const candidates = [
-    forward,
-    backward && { ...backward, geometry: [...backward.geometry].reverse() },
-  ].filter((route): route is RailRoute => route !== null)
-  const best = candidates.sort((a, b) => a.distanceM - b.distanceM)[0]
-  const straight = distanceM(from, to)
-  if (!best || best.distanceM > straight * 4 + 2000) return null
-  return best
+  const feature = body.features?.[0]
+  const geometry = (feature?.geometry?.coordinates ?? []).map(
+    ([lng, lat]) => [lat, lng] as LatLng,
+  )
+  if (geometry.length < 2) return null
+  if (
+    distanceM(from, geometry[0]) > SNAP_RADIUS_M ||
+    distanceM(to, geometry[geometry.length - 1]) > SNAP_RADIUS_M
+  ) {
+    return null
+  }
+  const length = Number(feature?.properties?.['track-length'])
+  const route = {
+    geometry,
+    distanceM: Number.isFinite(length) && length > 0 ? length : pathLengthM(geometry),
+  }
+  if (route.distanceM > distanceM(from, to) * 4 + 2000) return null
+  return route
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -781,7 +782,7 @@ export async function railRoute(
       if (signal?.aborted) throw signal.reason
       if (local) return local
     } else {
-      report('Waiting for the signal.eu.org rail router…')
+      report('Waiting for the BRouter rail router…')
       const route = await routed
       if (signal?.aborted) throw signal.reason
       if (route) return route
