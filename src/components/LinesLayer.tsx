@@ -9,6 +9,17 @@ interface DrawnLine {
   id: LineId
   color: string
   positions: LatLng[][]
+  /** Routed connections still waiting for, or lacking, their route. */
+  unrouted: LatLng[][]
+}
+
+function isUnrouted(segment: Segment): boolean {
+  return (
+    segment.mode !== 'straight' &&
+    (segment.stale === true ||
+      segment.distanceM === undefined ||
+      segment.routeError !== undefined)
+  )
 }
 
 /**
@@ -48,14 +59,24 @@ function useDrawnLines(project: Project, hiddenTypes: string[]): DrawnLine[] {
     () =>
       Object.values(project.lines)
         .filter((line) => isLineVisible(line, hiddenTypes))
-        .map((line) => ({
-          id: line.id,
-          color: line.color,
-          positions: line.segments
-            .map((segment) => geometryOf(segment, project.nodes))
-            .filter((geometry) => intersects(geometry, bounds)),
-        }))
-        .filter((line) => line.positions.length > 0),
+        .map((line) => {
+          const drawn: DrawnLine = {
+            id: line.id,
+            color: line.color,
+            positions: [],
+            unrouted: [],
+          }
+          for (const segment of line.segments) {
+            const geometry = geometryOf(segment, project.nodes)
+            if (!intersects(geometry, bounds)) continue
+            if (isUnrouted(segment)) drawn.unrouted.push(geometry)
+            else drawn.positions.push(geometry)
+          }
+          return drawn
+        })
+        .filter(
+          (line) => line.positions.length > 0 || line.unrouted.length > 0,
+        ),
     [project.lines, project.nodes, bounds, hiddenTypes],
   )
 }
@@ -68,23 +89,36 @@ export function LinesLayer({ project }: { project: Project }) {
 
   return (
     <>
-      {drawn.map((line) => {
+      {drawn.flatMap((line) => {
         const isSelected = line.id === selectedLineId
-        return (
-          <Polyline
-            key={line.id}
-            positions={line.positions}
-            // Otherwise the map's click handler also fires and clears the
-            // selection this click just made.
-            bubblingMouseEvents={false}
-            pathOptions={{
-              color: line.color,
-              weight: isSelected ? 6 : 4,
-              opacity: isSelected || !selectedLineId ? 0.9 : 0.35,
-            }}
-            eventHandlers={{ click: () => revealLine(line.id) }}
-          />
-        )
+        const pathOptions = {
+          color: line.color,
+          weight: isSelected ? 6 : 4,
+          opacity: isSelected || !selectedLineId ? 0.9 : 0.35,
+        }
+        const click = { click: () => revealLine(line.id) }
+        return [
+          line.positions.length > 0 && (
+            <Polyline
+              key={line.id}
+              positions={line.positions}
+              // Otherwise the map's click handler also fires and clears the
+              // selection this click just made.
+              bubblingMouseEvents={false}
+              pathOptions={pathOptions}
+              eventHandlers={click}
+            />
+          ),
+          line.unrouted.length > 0 && (
+            <Polyline
+              key={`${line.id}:unrouted`}
+              positions={line.unrouted}
+              bubblingMouseEvents={false}
+              pathOptions={{ ...pathOptions, dashArray: '6 8' }}
+              eventHandlers={click}
+            />
+          ),
+        ]
       })}
     </>
   )

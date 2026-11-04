@@ -35,6 +35,9 @@ function legTitle(segment: Segment): string {
   const next = `switch to ${NEXT_LABEL[segment.mode]}`
   if (segment.mode === 'straight') return `Straight line — ${next}`
   const label = segment.mode === 'road' ? 'Via roads' : 'Via rails'
+  if (segment.routeError) {
+    return `${label} — not routed (${segment.routeError}), drawn straight — ${next}`
+  }
   if (segment.stale || segment.distanceM === undefined) {
     return `${label} — waiting for a route`
   }
@@ -44,6 +47,14 @@ function legTitle(segment: Segment): string {
       ? ''
       : `, ${Math.round(segment.durationS / 60)} min`
   return `${label} — ${km} km${duration} — ${next}`
+}
+
+/** Colour of the mode glyph: routed, waiting for a route, or failed. */
+function legTone(segment: Segment): string {
+  if (segment.mode === 'straight') return ''
+  if (segment.routeError) return 'text-red-500'
+  if (segment.stale || segment.distanceM === undefined) return 'text-amber-500'
+  return 'text-emerald-600'
 }
 
 interface Props {
@@ -374,12 +385,7 @@ export function LineRow({ line, project }: Props) {
                             {!editMode ? (
                               <span
                                 className={`w-3 ${
-                                  incoming && incoming.mode !== 'straight'
-                                    ? incoming.stale ||
-                                      incoming.distanceM === undefined
-                                      ? 'text-amber-500'
-                                      : 'text-emerald-600'
-                                    : ''
+                                  incoming ? legTone(incoming) : ''
                                 }`}
                                 title={
                                   incoming ? legTitle(incoming) : undefined
@@ -399,12 +405,7 @@ export function LineRow({ line, project }: Props) {
                                   )
                                 }
                                 className={`w-3 ${
-                                  incoming.mode !== 'straight'
-                                    ? incoming.stale ||
-                                      incoming.distanceM === undefined
-                                      ? 'text-amber-500'
-                                      : 'text-emerald-600'
-                                    : 'hover:text-slate-900'
+                                  legTone(incoming) || 'hover:text-slate-900'
                                 }`}
                               >
                                 {MODE_GLYPH[incoming.mode]}

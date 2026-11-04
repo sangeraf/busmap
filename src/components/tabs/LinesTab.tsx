@@ -28,14 +28,122 @@ const EMPTY_DRAFT: Draft = {
   typeId: null,
 }
 
+function formatElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000))
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+/**
+ * What the background router is doing: progress, the current step and how
+ * long it has been running while it works, and the connections it could not
+ * route (drawn straight and dashed on the map) once it is done.
+ */
+function RoutingStatus({ lines }: { lines: Line[] }) {
+  const routing = useStore((s) => s.routing)
+  const routeStaleSegments = useStore((s) => s.routeStaleSegments)
+  const cancelRouting = useStore((s) => s.cancelRouting)
+  const [now, setNow] = useState(() => Date.now())
+  const running = routing.pending > 0
+
+  useEffect(() => {
+    if (!running) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [running])
+
+  const { waiting, failed, reason } = useMemo(() => {
+    let waiting = 0
+    let failed = 0
+    let reason: string | null = null
+    for (const line of lines) {
+      for (const segment of line.segments) {
+        if (!isRouted(segment.mode)) continue
+        if (segment.routeError) {
+          failed += 1
+          reason ??= segment.routeError
+        } else if (segment.stale || segment.distanceM === undefined) {
+          waiting += 1
+        }
+      }
+    }
+    return { waiting, failed, reason }
+  }, [lines])
+
+  if (running) {
+    const percent =
+      routing.total > 0 ? Math.round((routing.done / routing.total) * 100) : 0
+    return (
+      <div
+        role="status"
+        className="space-y-1 rounded bg-blue-50 px-2 py-1.5 text-xs text-blue-900"
+      >
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 font-medium">
+            Routing {routing.done} of {routing.total} connection(s)…
+          </span>
+          {routing.startedAt !== null && (
+            <span className="shrink-0 tabular-nums text-blue-700">
+              {formatElapsed(now - routing.startedAt)}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={cancelRouting}
+            className="shrink-0 rounded border border-blue-300 px-2 py-0.5"
+          >
+            Cancel
+          </button>
+        </div>
+        <div className="h-1 overflow-hidden rounded bg-blue-100">
+          <div
+            className="h-full bg-blue-500 transition-all"
+            style={{ width: `${Math.max(percent, 3)}%` }}
+          />
+        </div>
+        {routing.status && (
+          <div className="truncate text-blue-700" title={routing.status}>
+            {routing.status}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (failed === 0 && waiting === 0) return null
+  return (
+    <div className="flex items-center gap-2 rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+      <span className="min-w-0 flex-1">
+        {failed > 0 && (
+          <span className="block" title={reason ?? undefined}>
+            {failed} connection(s) could not be routed and are drawn as dashed
+            straight lines{reason ? `: ${reason}` : '.'}
+          </span>
+        )}
+        {waiting > 0 && (
+          <span className="block">
+            {routing.error === 'Routing was cancelled'
+              ? `Routing was cancelled; ${waiting} connection(s) still need a route.`
+              : `${waiting} connection(s) need a route.`}
+          </span>
+        )}
+      </span>
+      <button
+        type="button"
+        onClick={() => void routeStaleSegments({ retryFailed: true })}
+        className="shrink-0 rounded border border-amber-300 px-2 py-0.5"
+      >
+        {failed > 0 ? 'Retry' : 'Route now'}
+      </button>
+    </div>
+  )
+}
+
 export function LinesTab({ project }: { project: Project }) {
   const addLine = useStore((s) => s.addLine)
   const connect = useStore((s) => s.connect)
   const stopConnecting = useStore((s) => s.stopConnecting)
   const defaultSegmentMode = useStore((s) => s.defaultSegmentMode)
   const setDefaultSegmentMode = useStore((s) => s.setDefaultSegmentMode)
-  const routing = useStore((s) => s.routing)
-  const routeStaleSegments = useStore((s) => s.routeStaleSegments)
   const expandedLineId = useStore((s) => s.expandedLineId)
   const [filters, setFilters] = useState<LineFilters>(DEFAULT_LINE_FILTERS)
   const [draft, setDraft] = useState<Draft | null>(null)
@@ -56,21 +164,6 @@ export function LinesTab({ project }: { project: Project }) {
       : matching
   }, [lines, filters, fuse, expandedLineId, project.lines])
   const types = Object.values(project.lineTypes)
-  const staleCount = useMemo(
-    () =>
-      lines.reduce(
-        (total, line) =>
-          total +
-          line.segments.filter(
-            (segment) =>
-              isRouted(segment.mode) &&
-              (segment.stale || segment.distanceM === undefined),
-          ).length,
-        0,
-      ),
-    [lines],
-  )
-
   // The list is virtualised, so the opened row has to be scrolled to.
   useEffect(() => {
     if (!expandedLineId) {
@@ -190,27 +283,9 @@ export function LinesTab({ project }: { project: Project }) {
                   : 'Via rails'}
             </button>
           ))}
-          {routing.pending > 0 && (
-            <span className="ml-auto shrink-0 text-blue-600">
-              Routing {routing.pending}…
-            </span>
-          )}
         </div>
 
-        {staleCount > 0 && routing.pending === 0 && (
-          <div className="flex items-center gap-2 rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
-            <span className="min-w-0 flex-1">
-              {routing.error ?? `${staleCount} connection(s) need a route.`}
-            </span>
-            <button
-              type="button"
-              onClick={() => void routeStaleSegments()}
-              className="shrink-0 rounded border border-amber-300 px-2 py-0.5"
-            >
-              Route now
-            </button>
-          </div>
-        )}
+        <RoutingStatus lines={lines} />
 
         <input
           type="search"

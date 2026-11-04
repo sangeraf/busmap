@@ -10,6 +10,7 @@ import type {
   NodeKind,
   Project,
   ProjectId,
+  Segment,
   SegmentId,
   SegmentMode,
   TypeId,
@@ -89,8 +90,24 @@ export interface HistoryState {
 /** Progress of the background routing requests. */
 export interface RoutingState {
   pending: number
+  /** Connections queued since the router was last idle, and how many are done. */
+  total: number
+  done: number
   failed: number
   error: string | null
+  /** What the router is doing right now, e.g. which server it waits for. */
+  status: string | null
+  startedAt: number | null
+}
+
+export const IDLE_ROUTING: RoutingState = {
+  pending: 0,
+  total: 0,
+  done: 0,
+  failed: 0,
+  error: null,
+  status: null,
+  startedAt: null,
 }
 
 /**
@@ -217,7 +234,10 @@ interface StoreState {
     mode: SegmentMode,
   ) => void
   setLineMode: (lineId: LineId, mode: SegmentMode) => void
-  routeStaleSegments: () => Promise<void>
+  /** `retryFailed` also retries the connections whose last attempt failed. */
+  routeStaleSegments: (options?: { retryFailed?: boolean }) => Promise<void>
+  /** Stops the running routing; unfinished connections stay unrouted. */
+  cancelRouting: () => void
   createNewProject: (name: string) => void
   importProject: (project: Project, mode: ImportMode) => void
   switchProject: (id: ProjectId) => void
@@ -262,6 +282,9 @@ const routingSegments = new Set<SegmentId>()
 
 /** Routing runs are chained, so awaiting one also awaits the queued ones. */
 let routingRun: Promise<void> | null = null
+let routingAbort: AbortController | null = null
+/** Bumped by a cancel, so runs queued before it are dropped too. */
+let routingEpoch = 0
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -424,9 +447,9 @@ export const useStore = create<StoreState>((set, get) => {
     if (!anchorOnly) void get().routeStaleSegments()
   }
 
-  async function routePending() {
+  async function routePending(retryFailed: boolean, epoch: number) {
     const project = activeProject(get().workspace)
-    if (!project) return
+    if (!project || epoch !== routingEpoch) return
 
     const targets: {
       lineId: LineId
@@ -438,6 +461,8 @@ export const useStore = create<StoreState>((set, get) => {
       for (const segment of line.segments) {
         if (!isRouted(segment.mode)) continue
         if (!segment.stale && segment.distanceM !== undefined) continue
+        // A failed leg is not retried on every edit, only when asked to.
+        if (segment.routeError && !retryFailed) continue
         if (routingSegments.has(segment.id)) continue
         const from = project.nodes[segment.from]
         const to = project.nodes[segment.to]
@@ -456,54 +481,105 @@ export const useStore = create<StoreState>((set, get) => {
     }
     if (targets.length === 0) return
 
+    const abort = new AbortController()
+    routingAbort = abort
     set((state) => ({
       routing: {
         ...state.routing,
         pending: state.routing.pending + targets.length,
+        total: state.routing.total + targets.length,
         error: null,
+        startedAt: state.routing.startedAt ?? Date.now(),
       },
     }))
+    const report = (status: string) =>
+      set((state) => ({ routing: { ...state.routing, status } }))
 
-    const results = await mapWithConcurrency(
-      targets.map((target) => async () => {
-        const route = await routeBetween(
-          target.ends[0],
-          target.ends[1],
-          target.mode,
-        )
-        commit(
-          (workspace) => {
+    const updateSegment = (
+      target: (typeof targets)[number],
+      recipe: (segment: Segment) => void,
+    ) =>
+      commit(
+        (workspace) => {
           const line = activeProject(workspace)?.lines[target.lineId]
           const segment = line?.segments.find(
             (item) => item.id === target.segmentId,
           )
           if (!segment || segment.mode !== target.mode) return
-          segment.geometry = withEndpoints(
-            route.geometry,
+          recipe(segment)
+        },
+        { history: false },
+      )
+
+    const results = await mapWithConcurrency(
+      targets.map((target) => async () => {
+        try {
+          abort.signal.throwIfAborted()
+          const route = await routeBetween(
             target.ends[0],
             target.ends[1],
+            target.mode,
+            { signal: abort.signal, onProgress: report },
           )
+          updateSegment(target, (segment) => {
+            segment.geometry = withEndpoints(
+              route.geometry,
+              target.ends[0],
+              target.ends[1],
+            )
             segment.distanceM = route.distanceM
             segment.durationS = route.durationS
             segment.stale = false
-          },
-          { history: false },
-        )
+            delete segment.routeError
+          })
+        } catch (error) {
+          if (abort.signal.aborted) throw error
+          // Drawn as a straight line until a retry finds the route.
+          updateSegment(target, (segment) => {
+            segment.geometry = []
+            segment.distanceM = undefined
+            segment.durationS = undefined
+            segment.routeError =
+              error instanceof Error ? error.message : String(error)
+          })
+          throw error
+        } finally {
+          set((state) => ({
+            routing: { ...state.routing, done: state.routing.done + 1 },
+          }))
+        }
       }),
     )
 
+    if (routingAbort === abort) routingAbort = null
     for (const target of targets) routingSegments.delete(target.segmentId)
-    const failures = results.filter((item) => item.status === 'rejected')
-    set((state) => ({
-      routing: {
-        pending: Math.max(0, state.routing.pending - targets.length),
-        failed: failures.length,
-        error:
-          failures.length > 0
-            ? `${failures.length} connection(s) could not be routed`
-            : null,
-      },
-    }))
+    const failures = abort.signal.aborted
+      ? []
+      : results.filter(
+          (item): item is PromiseRejectedResult => item.status === 'rejected',
+        )
+    const firstReason = failures[0]?.reason
+    set((state) => {
+      const pending = Math.max(0, state.routing.pending - targets.length)
+      const idle = pending === 0
+      return {
+        routing: {
+          pending,
+          total: idle ? 0 : state.routing.total,
+          done: idle ? 0 : state.routing.done,
+          startedAt: idle ? null : state.routing.startedAt,
+          status: idle ? null : state.routing.status,
+          failed: failures.length,
+          error: abort.signal.aborted
+            ? 'Routing was cancelled'
+            : failures.length > 0
+              ? `${failures.length} connection(s) could not be routed${
+                  firstReason instanceof Error ? `: ${firstReason.message}` : ''
+                }`
+              : null,
+        },
+      }
+    })
   }
 
   return {
@@ -525,7 +601,7 @@ export const useStore = create<StoreState>((set, get) => {
     recentColors: [],
     defaultSegmentMode: 'straight',
     railOverlay: false,
-    routing: { pending: 0, failed: 0, error: null },
+    routing: IDLE_ROUTING,
     history: { past: 0, future: 0 },
     folder: {
       connected: false,
@@ -787,6 +863,7 @@ export const useStore = create<StoreState>((set, get) => {
               if (segment.from !== id && segment.to !== id) continue
               if (isRouted(segment.mode)) {
                 segment.stale = true
+                delete segment.routeError
               } else {
                 const from = project.nodes[segment.from]
                 const to = project.nodes[segment.to]
@@ -1087,12 +1164,20 @@ export const useStore = create<StoreState>((set, get) => {
      * whose stops moved. Requests are cached, de-duplicated and run a few at a
      * time; segments that fail stay stale so they can be retried.
      */
-    routeStaleSegments: () => {
-      const run = (routingRun ?? Promise.resolve()).then(() => routePending())
+    routeStaleSegments: (options = {}) => {
+      const epoch = routingEpoch
+      const run = (routingRun ?? Promise.resolve()).then(() =>
+        routePending(options.retryFailed ?? false, epoch),
+      )
       routingRun = run.finally(() => {
         if (routingRun === run) routingRun = null
       })
       return routingRun
+    },
+
+    cancelRouting: () => {
+      routingEpoch += 1
+      routingAbort?.abort()
     },
 
     importProject: (imported, mode) => {

@@ -1,6 +1,6 @@
 import polyline from '@mapbox/polyline'
 import { decodeGeometry, encodeGeometry } from './serialize'
-import { railRoute } from './rail'
+import { railRoute, withTimeout, type RailOptions } from './rail'
 import type { LatLng, SegmentMode } from '../types'
 
 export const OSRM_URL = 'https://router.project-osrm.org/route/v1/driving'
@@ -8,6 +8,8 @@ export const OSRM_URL = 'https://router.project-osrm.org/route/v1/driving'
 /** Parallel requests against the public OSRM demo server. */
 const CONCURRENCY = 4
 const RETRIES = 2
+/** A request the demo server has not answered by then is given up on. */
+const REQUEST_TIMEOUT_MS = 20_000
 
 export interface RouteResult {
   geometry: LatLng[]
@@ -81,7 +83,17 @@ async function requestRoute(
 ): Promise<RouteResult> {
   let lastError = new Error('Routing failed')
   for (let attempt = 0; attempt <= RETRIES; attempt += 1) {
-    const response = await fetch(routeUrl(from, to), { signal })
+    const timeout = withTimeout(REQUEST_TIMEOUT_MS, signal)
+    let response: Response
+    try {
+      response = await fetch(routeUrl(from, to), { signal: timeout })
+    } catch (error) {
+      if (signal?.aborted) throw error
+      lastError = new Error(
+        timeout.aborted ? 'The road router timed out' : 'The road router is unreachable',
+      )
+      continue
+    }
     if (!response.ok) {
       lastError = new Error(`Routing failed (${response.status})`)
       if (!isRateLimit(response.status)) throw lastError
@@ -177,7 +189,7 @@ export async function routeBetween(
   from: LatLng,
   to: LatLng,
   mode: SegmentMode = 'road',
-  signal?: AbortSignal,
+  options: RailOptions = {},
 ): Promise<RouteResult> {
   const key = routeKey(from, to, mode)
   const cached = readCache(key)
@@ -188,8 +200,8 @@ export async function routeBetween(
 
   const request = (
     mode === 'rail'
-      ? railRoute(from, to, signal)
-      : requestRoute(from, to, signal)
+      ? railRoute(from, to, options)
+      : requestRoute(from, to, options.signal)
   )
     .then((result) => {
       writeCache(key, result)
