@@ -61,6 +61,12 @@ export interface RailOptions {
 export interface RailRoute {
   geometry: LatLng[]
   distanceM: number
+  /**
+   * Set when this is the rail router's quick answer: the route along the
+   * downloaded tracks, which snaps the stops more precisely and does not
+   * zigzag over crossovers, or null when the tracks found none. Never rejects.
+   */
+  refined?: Promise<RailRoute | null>
 }
 
 export interface Bounds {
@@ -302,6 +308,18 @@ export function corridorBlocks(
   return blocks
 }
 
+/** The point of a track piece (the stretch between two OSM points) nearest a stop. */
+export interface TrackPiece {
+  from: number
+  to: number
+  /** Position along the piece: 0 at `from`, 1 at `to`. */
+  t: number
+  /** Length of the whole piece in metres. */
+  cost: number
+  point: LatLng
+  distance: number
+}
+
 /**
  * The downloaded track network as one undirected graph that grows with every
  * block. Junctions and switches are the points two ways share, and Overpass
@@ -316,6 +334,11 @@ export class TrackNetwork {
   private ids = new Map<string, number>()
   private ways = new Set<number>()
   private grid = new Map<number, number[]>()
+  /** Track pieces by every grid cell their bounding box touches. */
+  private edgeGrid = new Map<number, number[]>()
+  private edgeFrom: number[] = []
+  private edgeTo: number[] = []
+  private edgeCost: number[] = []
   lat: number[] = []
   lng: number[] = []
   links: number[][] = []
@@ -336,10 +359,15 @@ export class TrackNetwork {
       let previous = -1
       for (const point of way.geometry) {
         const id = this.node(point)
-        if (previous >= 0 && previous !== id) {
+        if (
+          previous >= 0 &&
+          previous !== id &&
+          !this.links[previous].includes(id)
+        ) {
           const cost = distanceM(this.point(previous), point)
           this.link(previous, id, cost)
           this.link(id, previous, cost)
+          this.addEdge(previous, id, cost)
         }
         previous = id
       }
@@ -362,6 +390,74 @@ export class TrackNetwork {
       }
     }
     return found.sort((a, b) => a.distance - b.distance)
+  }
+
+  /**
+   * The nearest point of every track piece within `radiusM` of `point`,
+   * nearest first. `t` is how far along the piece (0 at `from`, 1 at `to`)
+   * the point lies, so a stop beside a long straight snaps beside itself
+   * rather than to the far end of the piece.
+   */
+  nearPieces(point: LatLng, radiusM: number): TrackPiece[] {
+    const rows = Math.ceil(radiusM / (GRID_DEG * M_PER_DEG))
+    const cols = Math.ceil(radiusM / (GRID_DEG * M_PER_DEG * lngScale(point[0])))
+    const row = Math.floor(point[0] / GRID_DEG)
+    const col = Math.floor(point[1] / GRID_DEG)
+    const seen = new Set<number>()
+    const found: TrackPiece[] = []
+    const scale = lngScale(point[0]) * M_PER_DEG
+    for (let r = row - rows; r <= row + rows; r += 1) {
+      for (let c = col - cols; c <= col + cols; c += 1) {
+        for (const edge of this.edgeGrid.get(this.cell(r, c)) ?? []) {
+          if (seen.has(edge)) continue
+          seen.add(edge)
+          const from = this.edgeFrom[edge]
+          const to = this.edgeTo[edge]
+          const ax = (this.lng[from] - point[1]) * scale
+          const ay = (this.lat[from] - point[0]) * M_PER_DEG
+          const bx = (this.lng[to] - point[1]) * scale
+          const by = (this.lat[to] - point[0]) * M_PER_DEG
+          const dx = bx - ax
+          const dy = by - ay
+          const length = dx * dx + dy * dy
+          const t =
+            length === 0
+              ? 0
+              : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / length))
+          const foot: LatLng =
+            t === 0
+              ? this.point(from)
+              : t === 1
+                ? this.point(to)
+                : [
+                    this.lat[from] + (this.lat[to] - this.lat[from]) * t,
+                    this.lng[from] + (this.lng[to] - this.lng[from]) * t,
+                  ]
+          const distance = distanceM(point, foot)
+          if (distance <= radiusM) {
+            found.push({ from, to, t, cost: this.edgeCost[edge], point: foot, distance })
+          }
+        }
+      }
+    }
+    return found.sort((a, b) => a.distance - b.distance)
+  }
+
+  private addEdge(from: number, to: number, cost: number) {
+    const edge = this.edgeFrom.length
+    this.edgeFrom.push(from)
+    this.edgeTo.push(to)
+    this.edgeCost.push(cost)
+    const rows = [this.lat[from], this.lat[to]].map((lat) => Math.floor(lat / GRID_DEG))
+    const cols = [this.lng[from], this.lng[to]].map((lng) => Math.floor(lng / GRID_DEG))
+    for (let r = Math.min(...rows); r <= Math.max(...rows); r += 1) {
+      for (let c = Math.min(...cols); c <= Math.max(...cols); c += 1) {
+        const cell = this.cell(r, c)
+        const bucket = this.edgeGrid.get(cell)
+        if (bucket) bucket.push(edge)
+        else this.edgeGrid.set(cell, [edge])
+      }
+    }
   }
 
   private cell(row: number, col: number): number {
@@ -580,9 +676,11 @@ function gapBridges(
 }
 
 /**
- * A* between two stops. Every track point near a stop is an entry point, at a
- * penalty for its distance, so a stop next to a short detached siding still
- * finds the main track a little farther away.
+ * A* between two stops. Each stop enters the tracks at the nearest point of
+ * every track piece around it, which may lie between two OSM points, at a
+ * penalty for its distance; so a stop next to a short detached siding still
+ * finds the main track a little farther away, and the route can start on
+ * whichever of several parallel tracks gives the shorter ride.
  */
 export async function searchPath(
   graph: TrackNetwork,
@@ -591,30 +689,66 @@ export async function searchPath(
   options: SearchOptions = {},
 ): Promise<SearchResult> {
   const inside = options.blocks
-    ? (id: number) => options.blocks!.has(blockOf(graph.lat[id], graph.lng[id]))
+    ? (id: number) =>
+        id < 0 || options.blocks!.has(blockOf(graph.lat[id], graph.lng[id]))
     : () => true
-  const starts = graph.near(from, SNAP_RADIUS_M).filter(({ id }) => inside(id))
-  const ends = graph.near(to, SNAP_RADIUS_M).filter(({ id }) => inside(id))
+  const usable = (piece: TrackPiece) => inside(piece.from) || inside(piece.to)
+  const starts = graph.nearPieces(from, SNAP_RADIUS_M).filter(usable)
+  const ends = graph.nearPieces(to, SNAP_RADIUS_M).filter(usable)
   if (starts.length === 0 || ends.length === 0) {
     return { path: null, reason: 'no-track' }
   }
-  const exits = new Map(ends.map(({ id, distance }) => [id, distance * SNAP_PENALTY]))
+
+  // Entry and exit points are extra nodes with negative ids below GOAL, as
+  // other legs may add tracks to the network while this search yields.
+  const extraPoints: LatLng[] = []
+  const extraLinks = new Map<number, { to: number; cost: number }[]>()
+  const addLink = (fromId: number, toId: number, cost: number) => {
+    const list = extraLinks.get(fromId)
+    if (list) list.push({ to: toId, cost })
+    else extraLinks.set(fromId, [{ to: toId, cost }])
+  }
+  const addPoint = (point: LatLng) => {
+    extraPoints.push(point)
+    return GOAL - extraPoints.length
+  }
+  const point = (id: number): LatLng =>
+    id < 0 ? extraPoints[GOAL - 1 - id] : graph.point(id)
+  const exits = new Map<number, number>()
+  const exitPieces: { id: number; piece: TrackPiece }[] = []
+  for (const piece of ends) {
+    const id = addPoint(piece.point)
+    exits.set(id, piece.distance * SNAP_PENALTY)
+    addLink(piece.from, id, piece.cost * piece.t)
+    addLink(piece.to, id, piece.cost * (1 - piece.t))
+    exitPieces.push({ id, piece })
+  }
+  const entries = starts.map((piece) => {
+    const id = addPoint(piece.point)
+    addLink(id, piece.from, piece.cost * piece.t)
+    addLink(id, piece.to, piece.cost * (1 - piece.t))
+    // Both stops beside the same piece: ride straight along it.
+    for (const exit of exitPieces) {
+      if (exit.piece.from === piece.from && exit.piece.to === piece.to) {
+        addLink(id, exit.id, piece.cost * Math.abs(exit.piece.t - piece.t))
+      }
+    }
+    return { id, cost: piece.distance * SNAP_PENALTY }
+  })
   const bridges = options.bridges ? gapBridges(graph, inside) : null
 
   const best = new Map<number, number>()
   const cameFrom = new Map<number, number>()
   const settled = new Set<number>()
   const queue = new Queue()
-  const heuristic = (id: number) => distanceM(graph.point(id), to)
+  const heuristic = (id: number) => distanceM(point(id), to)
   const relax = (next: number, cost: number, current: number) => {
     if (cost >= (best.get(next) ?? Infinity)) return
     best.set(next, cost)
     cameFrom.set(next, current)
     queue.push(next, next === GOAL ? cost : cost + heuristic(next))
   }
-  for (const { id, distance } of starts) {
-    const cost = distance * SNAP_PENALTY
-    if (cost >= (best.get(id) ?? Infinity)) continue
+  for (const { id, cost } of entries) {
     best.set(id, cost)
     queue.push(id, cost + heuristic(id))
   }
@@ -635,20 +769,30 @@ export async function searchPath(
     const cost = best.get(current)!
     const exit = exits.get(current)
     if (exit !== undefined) relax(GOAL, cost + exit, current)
-    const links = graph.links[current]
-    const costs = graph.costs[current]
-    for (let index = 0; index < links.length; index += 1) {
-      if (inside(links[index])) relax(links[index], cost + costs[index], current)
+    if (current >= 0) {
+      const links = graph.links[current]
+      const costs = graph.costs[current]
+      for (let index = 0; index < links.length; index += 1) {
+        if (inside(links[index])) relax(links[index], cost + costs[index], current)
+      }
+      for (const bridge of bridges?.get(current) ?? []) {
+        relax(bridge.to, cost + bridge.cost, current)
+      }
     }
-    for (const bridge of bridges?.get(current) ?? []) {
-      relax(bridge.to, cost + bridge.cost, current)
+    for (const link of extraLinks.get(current) ?? []) {
+      if (inside(link.to)) relax(link.to, cost + link.cost, current)
     }
   }
 
   if (!best.has(GOAL)) return { path: null, reason: 'no-route' }
   const path: LatLng[] = []
   for (let id = cameFrom.get(GOAL); id !== undefined; id = cameFrom.get(id)) {
-    path.push(graph.point(id))
+    const next = point(id)
+    const previous = path[path.length - 1]
+    // An entry or exit right on an OSM point repeats it.
+    if (!previous || previous[0] !== next[0] || previous[1] !== next[1]) {
+      path.push(next)
+    }
   }
   return { path: path.reverse() }
 }
@@ -759,6 +903,14 @@ export async function railRoute(
   }
 
   const noTrack = () => failure === 'No rail track near this stop'
+  const wideSearch = () =>
+    downloaded && !noTrack()
+      ? search(wide, true).catch((error: unknown) => {
+          if (signal?.aborted) throw error
+          failure = error instanceof Error ? error.message : String(error)
+          return null
+        })
+      : Promise.resolve(null)
   // Track servers can take minutes to fail one after another, so the train
   // router is asked at the same time; neither promise rejects.
   let tracksDone = false
@@ -777,6 +929,16 @@ export async function railRoute(
     }
   })()
   const routed = routerRoute(from, to, signal).catch(() => null)
+  let local: Promise<RailRoute | null> | null = null
+  const localRoute = () =>
+    (local ??= tracks
+      .then((route) => route ?? wideSearch())
+      .catch(() => null))
+  // The router's answer stands in until the tracks are searched.
+  const provisional = (route: RailRoute): RailRoute => ({
+    ...route,
+    refined: localRoute(),
+  })
 
   try {
     const first = await Promise.race([
@@ -786,20 +948,20 @@ export async function railRoute(
     if (signal?.aborted) throw signal.reason
     if (first.from === 'tracks' && first.route) return first.route
     if (first.from === 'router' && isRoute(first.route)) {
-      // Tracks already downloaded are usually more precise; give them a
-      // moment before settling for the router's answer.
-      const local = await Promise.race([tracks, sleep(TRACK_GRACE_MS)])
+      // Downloaded tracks are more precise; give them a moment before
+      // settling for the router's answer.
+      const found = await Promise.race([tracks, sleep(TRACK_GRACE_MS)])
       if (signal?.aborted) throw signal.reason
-      return local ?? first.route
+      return found ?? provisional(first.route)
     }
     if (first.from === 'router' && first.route) {
       // The router saw the tracks and found nothing usable; slow track
       // servers get a short while to disagree before giving up.
       const miss = first.route
       report('Checking the rail tracks…')
-      const local = await Promise.race([tracks, sleep(ROUTER_MISS_GRACE_MS)])
+      const found = await Promise.race([tracks, sleep(ROUTER_MISS_GRACE_MS)])
       if (signal?.aborted) throw signal.reason
-      if (local) return local
+      if (found) return found
       if (!tracksDone) {
         throw new Error(
           miss === 'off-track'
@@ -809,24 +971,20 @@ export async function railRoute(
       }
     } else if (first.from === 'router') {
       report('Waiting for the rail track servers…')
-      const local = await tracks
+      const found = await tracks
       if (signal?.aborted) throw signal.reason
-      if (local) return local
+      if (found) return found
     } else {
       report('Waiting for the BRouter rail router…')
       const route = await routed
       if (signal?.aborted) throw signal.reason
-      if (isRoute(route)) return route
+      // The narrow band found nothing; the wide one may still.
+      if (isRoute(route)) return provisional(route)
     }
 
-    if (downloaded && !noTrack()) {
-      const found = await search(wide, true).catch((error: unknown) => {
-        if (signal?.aborted) throw error
-        failure = error instanceof Error ? error.message : String(error)
-        return null
-      })
-      if (found) return found
-    }
+    const found = await localRoute()
+    if (signal?.aborted) throw signal.reason
+    if (found) return found
     throw new Error(
       downloaded ? failure : `${failure}, and the rail router found no route`,
     )

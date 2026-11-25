@@ -47,6 +47,7 @@ import {
   mapWithConcurrency,
   routeBetween,
   withEndpoints,
+  type RouteResult,
 } from '../lib/routing'
 import {
   emptyWorkspace,
@@ -511,6 +512,37 @@ export const useStore = create<StoreState>((set, get) => {
         { history: false },
       )
 
+    // A quick rail route is replaced by the one along the downloaded tracks,
+    // unless the leg changed in the meantime.
+    const applyRefined = (
+      target: (typeof targets)[number],
+      route: RouteResult,
+    ) =>
+      commit(
+        (workspace) => {
+          const project = activeProject(workspace)
+          const segment = project?.lines[target.lineId]?.segments.find(
+            (item) => item.id === target.segmentId,
+          )
+          if (!segment || segment.mode !== target.mode || segment.stale) return
+          const ends = [project!.nodes[segment.from], project!.nodes[segment.to]]
+          const moved = ends.some(
+            (node, index) =>
+              !node ||
+              node.lat !== target.ends[index][0] ||
+              node.lng !== target.ends[index][1],
+          )
+          if (moved) return
+          segment.geometry = withEndpoints(
+            route.geometry,
+            target.ends[0],
+            target.ends[1],
+          )
+          segment.distanceM = route.distanceM
+        },
+        { history: false },
+      )
+
     const results = await mapWithConcurrency(
       targets.map((target) => async () => {
         try {
@@ -531,6 +563,9 @@ export const useStore = create<StoreState>((set, get) => {
             segment.durationS = route.durationS
             segment.stale = false
             delete segment.routeError
+          })
+          void route.refined?.then((better) => {
+            if (better) applyRefined(target, better)
           })
         } catch (error) {
           if (abort.signal.aborted) throw error

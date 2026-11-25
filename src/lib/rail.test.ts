@@ -121,6 +121,39 @@ describe('rail', () => {
     expect(result.path![1]).toEqual([47.5, 19.01])
   })
 
+  it('enters the track beside the stop, not at the far end of a long piece', async () => {
+    const straight: LatLng[] = [
+      [47.5, 19.0],
+      [47.5, 19.02],
+    ]
+    const graph = network(straight)
+    const result = await searchPath(graph, [47.5005, 19.005], [47.4995, 19.015])
+    expect(result.path).toHaveLength(2)
+    expect(result.path![0][0]).toBeCloseTo(47.5, 6)
+    expect(result.path![0][1]).toBeCloseTo(19.005, 6)
+    expect(result.path![1][1]).toBeCloseTo(19.015, 6)
+    expect(pathLengthM(result.path!)).toBeCloseTo(754, -1)
+  })
+
+  it('starts on whichever parallel track gives the shorter ride', async () => {
+    // The stop is nearest the southern track, which only meets the northern
+    // one far behind it; the northern track a little farther away goes on.
+    const north: LatLng[] = [
+      [47.5, 18.98],
+      [47.5, 19.02],
+    ]
+    const south: LatLng[] = [
+      [47.5, 18.98],
+      [47.4996, 18.99],
+      [47.4996, 19.01],
+    ]
+    const graph = network(north, south)
+    const result = await searchPath(graph, [47.4997, 19.005], [47.5, 19.02])
+    expect(result.path![0][0]).toBeCloseTo(47.5, 6)
+    expect(result.path![0][1]).toBeCloseTo(19.005, 6)
+    expect(result.path).toHaveLength(2)
+  })
+
   it('reports a stop that is nowhere near a track', async () => {
     const graph = network(NORTH)
     const result = await searchPath(graph, [47.6, 19.0], [47.5, 19.02])
@@ -247,6 +280,32 @@ describe('rail', () => {
     const route = await railRoute([47.5, 19.0], [47.5, 19.02])
     expect(route.distanceM).toBe(1600)
     expect(route.geometry.at(-1)).toEqual([47.5, 19.02])
+  })
+
+  it('replaces the router answer with the downloaded tracks once they arrive', async () => {
+    let release: (body: unknown) => void = () => undefined
+    stubFetch(
+      () => new Promise((resolve) => (release = (body) => resolve(ok(body)))),
+      () => ok(routerBody(NORTH, 1600)),
+    )
+    const route = await railRoute([47.5, 19.0], [47.5, 19.02])
+    expect(route.distanceM).toBe(1600)
+    expect(route.refined).toBeDefined()
+    release(overpassBody([NORTH, SOUTH]))
+    const better = await route.refined!
+    expect(better!.geometry).toEqual(NORTH)
+    expect(better!.distanceM).toBeCloseTo(pathLengthM(NORTH), 0)
+    expect(better!.refined).toBeUndefined()
+  })
+
+  it('keeps the router answer when the tracks never download', async () => {
+    stubFetch(
+      () => ({ ok: false, status: 504 }),
+      () => ok(routerBody(NORTH, 1600)),
+    )
+    const route = await railRoute([47.5, 19.0], [47.5, 19.02])
+    expect(route.distanceM).toBe(1600)
+    expect(await route.refined).toBeNull()
   })
 
   it('gives up soon when the router finds no track and the servers hang', async () => {

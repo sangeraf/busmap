@@ -16,6 +16,8 @@ export interface RouteResult {
   distanceM: number
   /** Rail routes have no speed model, so only road legs carry a duration. */
   durationS?: number
+  /** A better route still being worked out (see `RailRoute.refined`). */
+  refined?: Promise<RouteResult | null>
 }
 
 interface OsrmRoute {
@@ -148,6 +150,7 @@ export async function hydrateRouteCache(): Promise<void> {
 
 export function clearRouteCache(): void {
   cache = new Map()
+  refining.clear()
   clearTimeout(saveTimer)
 }
 
@@ -183,6 +186,8 @@ function writeCache(key: string, result: RouteResult) {
 }
 
 const inFlight = new Map<string, Promise<RouteResult>>()
+/** Better routes still being worked out for legs already cached. */
+const refining = new Map<string, Promise<RouteResult | null>>()
 
 /** Cached, de-duplicated route between two points, by road or by rail. */
 export async function routeBetween(
@@ -193,7 +198,10 @@ export async function routeBetween(
 ): Promise<RouteResult> {
   const key = routeKey(from, to, mode)
   const cached = readCache(key)
-  if (cached) return cached
+  if (cached) {
+    const refined = refining.get(key)
+    return refined ? { ...cached, refined } : cached
+  }
 
   const running = inFlight.get(key)
   if (running) return running
@@ -205,6 +213,14 @@ export async function routeBetween(
   )
     .then((result) => {
       writeCache(key, result)
+      const { refined } = result
+      if (refined) {
+        refining.set(key, refined)
+        void refined.then((better) => {
+          if (better) writeCache(key, better)
+          if (refining.get(key) === refined) refining.delete(key)
+        })
+      }
       return result
     })
     .finally(() => inFlight.delete(key))

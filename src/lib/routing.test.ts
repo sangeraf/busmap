@@ -9,6 +9,7 @@ import {
   setRouteCacheBackend,
   withEndpoints,
 } from './routing'
+import { RAIL_ROUTER_URL, clearRailCache } from './rail'
 import type { LatLng } from '../types'
 
 const A: LatLng = [47.5, 19.0]
@@ -32,6 +33,7 @@ function osrmResponse(geometry: LatLng[]) {
 
 afterEach(() => {
   clearRouteCache()
+  clearRailCache()
   setRouteCacheBackend(null)
   vi.unstubAllGlobals()
 })
@@ -41,6 +43,49 @@ describe('routing', () => {
     expect(routeUrl(A, B)).toBe(
       'https://router.project-osrm.org/route/v1/driving/19,47.5;19.02,47.51?overview=full&geometries=polyline6',
     )
+  })
+
+  it('hands a pending rail refinement to later legs that hit the cache', async () => {
+    const track: LatLng[] = [A, [47.505, 19.01], B]
+    let release: () => void = () => undefined
+    const tracksReady = new Promise<void>((resolve) => (release = resolve))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.startsWith(RAIL_ROUTER_URL)) {
+          return {
+            ok: true,
+            json: async () => ({
+              features: [
+                {
+                  properties: { 'track-length': '2500' },
+                  geometry: { coordinates: [A, B].map(([lat, lng]) => [lng, lat]) },
+                },
+              ],
+            }),
+          }
+        }
+        await tracksReady
+        return {
+          ok: true,
+          json: async () => ({
+            elements: [
+              { type: 'way', id: 1, geometry: track.map(([lat, lon]) => ({ lat, lon })) },
+            ],
+          }),
+        }
+      }),
+    )
+    const first = await routeBetween(A, B, 'rail')
+    const second = await routeBetween(A, B, 'rail')
+    expect(second.distanceM).toBe(2500)
+    expect(second.refined).toBeDefined()
+    release()
+    expect((await second.refined)!.geometry).toEqual(track)
+    await first.refined
+    const later = await routeBetween(A, B, 'rail')
+    expect(later.geometry).toEqual(track)
+    expect(later.refined).toBeUndefined()
   })
 
   it('keys both directions separately', () => {
