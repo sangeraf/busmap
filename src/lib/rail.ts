@@ -690,8 +690,7 @@ export async function searchPath(
 ): Promise<SearchResult> {
   const inside = options.blocks
     ? (id: number) =>
-        id >= graph.size ||
-        options.blocks!.has(blockOf(graph.lat[id], graph.lng[id]))
+        id < 0 || options.blocks!.has(blockOf(graph.lat[id], graph.lng[id]))
     : () => true
   const usable = (piece: TrackPiece) => inside(piece.from) || inside(piece.to)
   const starts = graph.nearPieces(from, SNAP_RADIUS_M).filter(usable)
@@ -700,7 +699,8 @@ export async function searchPath(
     return { path: null, reason: 'no-track' }
   }
 
-  // Entry and exit points are extra nodes numbered after the network's own.
+  // Entry and exit points are extra nodes with negative ids below GOAL, as
+  // other legs may add tracks to the network while this search yields.
   const extraPoints: LatLng[] = []
   const extraLinks = new Map<number, { to: number; cost: number }[]>()
   const addLink = (fromId: number, toId: number, cost: number) => {
@@ -710,10 +710,10 @@ export async function searchPath(
   }
   const addPoint = (point: LatLng) => {
     extraPoints.push(point)
-    return graph.size + extraPoints.length - 1
+    return GOAL - extraPoints.length
   }
   const point = (id: number): LatLng =>
-    id >= graph.size ? extraPoints[id - graph.size] : graph.point(id)
+    id < 0 ? extraPoints[GOAL - 1 - id] : graph.point(id)
   const exits = new Map<number, number>()
   const exitPieces: { id: number; piece: TrackPiece }[] = []
   for (const piece of ends) {
@@ -769,7 +769,7 @@ export async function searchPath(
     const cost = best.get(current)!
     const exit = exits.get(current)
     if (exit !== undefined) relax(GOAL, cost + exit, current)
-    if (current < graph.size) {
+    if (current >= 0) {
       const links = graph.links[current]
       const costs = graph.costs[current]
       for (let index = 0; index < links.length; index += 1) {
