@@ -16,6 +16,8 @@ export interface RouteResult {
   distanceM: number
   /** Rail routes have no speed model, so only road legs carry a duration. */
   durationS?: number
+  /** A better route still being worked out (see `RailRoute.refined`). */
+  refined?: Promise<RouteResult | null>
 }
 
 interface OsrmRoute {
@@ -205,6 +207,9 @@ export async function routeBetween(
   )
     .then((result) => {
       writeCache(key, result)
+      void result.refined?.then((better) => {
+        if (better) writeCache(key, better)
+      })
       return result
     })
     .finally(() => inFlight.delete(key))

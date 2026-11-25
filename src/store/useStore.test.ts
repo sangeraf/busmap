@@ -4,7 +4,7 @@ import { IDLE_ROUTING, setStorageBackend, useStore } from './useStore'
 import { STOP_COLOR, WAYPOINT_COLOR } from '../lib/nodes'
 import { lineChains } from '../lib/lines'
 import { clearRouteCache } from '../lib/routing'
-import { clearRailCache } from '../lib/rail'
+import { RAIL_ROUTER_URL, clearRailCache } from '../lib/rail'
 import { parseProjectFile } from '../lib/exchange'
 import type { LatLng } from '../types'
 import {
@@ -706,6 +706,71 @@ describe('workspace store', () => {
     expect(routed.geometry).toHaveLength(3)
     expect(routed.durationS).toBeUndefined()
     expect(routed.distanceM).toBeGreaterThan(0)
+  })
+
+  it('swaps the quick rail router answer for the downloaded tracks', async () => {
+    const track: LatLng[] = [
+      [47.5, 19.0],
+      [47.505, 19.005],
+      [47.51, 19.01],
+    ]
+    let release: () => void = () => undefined
+    const tracksReady = new Promise<void>((resolve) => (release = resolve))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.startsWith(RAIL_ROUTER_URL)) {
+          return {
+            ok: true,
+            json: async () => ({
+              features: [
+                {
+                  properties: { 'track-length': '2500' },
+                  geometry: {
+                    coordinates: [
+                      [19.0, 47.5],
+                      [19.0, 47.51],
+                      [19.01, 47.51],
+                    ],
+                  },
+                },
+              ],
+            }),
+          }
+        }
+        await tracksReady
+        return {
+          ok: true,
+          json: async () => ({
+            elements: [
+              {
+                type: 'way',
+                id: 1,
+                geometry: track.map(([lat, lon]) => ({ lat, lon })),
+              },
+            ],
+          }),
+        }
+      }),
+    )
+
+    const store = useStore.getState()
+    store.setDefaultSegmentMode('rail')
+    const a = store.addNode('stop', 47.5, 19.0)
+    const b = store.addNode('stop', 47.51, 19.01)
+    const line = store.addLine({ name: '2' })
+    useStore.getState().startConnecting(line.id, line.groups[0].id)
+    useStore.getState().connectTo(a.id)
+    useStore.getState().connectTo(b.id)
+
+    await useStore.getState().routeStaleSegments()
+    expect(activeLine(line.id).segments[0].distanceM).toBe(2500)
+
+    release()
+    await vi.waitFor(() =>
+      expect(activeLine(line.id).segments[0].geometry).toEqual(track),
+    )
+    expect(activeLine(line.id).segments[0].distanceM).toBeLessThan(2500)
   })
 
   it('switches a whole line back to straight geometry', async () => {
